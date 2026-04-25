@@ -12,6 +12,7 @@ export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave 
   const isActive = result && (result.status === "pending" || result.status === "running");
   const isDone = result?.status === "completed";
   const isFailed = result?.status === "failed";
+  const isBatch = (result?.batch_count ?? 1) > 1;
 
   return (
     <div className="pipeline-step-card">
@@ -37,15 +38,27 @@ export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave 
             totalSteps={result.total_steps}
             rateValue={result.rate_value}
             rateUnit={result.rate_unit}
+            batchIndex={result.batch_index}
+            batchTotal={result.batch_count}
             width={result.width}
             height={result.height}
           />
         ) : null}
 
-        {isDone && result?.image_url ? (
-          <div className="pipeline-step-image-wrap">
-            <img src={result.image_url} alt={result.positive_prompt} />
-          </div>
+        {isDone && result?.image_urls.length ? (
+          isBatch ? (
+            <div className="image-batch-grid">
+              {result.image_urls.map((url, i) => (
+                <div key={i} className="image-batch-cell">
+                  <img src={url} alt={`Image ${i + 1}`} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="pipeline-step-image-wrap">
+              <img src={result.image_urls[0]} alt={result.positive_prompt} />
+            </div>
+          )
         ) : isFailed ? (
           <div className="error-banner">{result?.error ?? "Generation failed."}</div>
         ) : !isGenerating ? (
@@ -58,6 +71,7 @@ export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave 
               <span>{result.width} × {result.height}</span>
               <span>{result.steps} steps</span>
               <span>CFG {result.cfg_scale}</span>
+              {isBatch ? <span>{result.batch_count} images</span> : null}
               {result.seed !== null ? <span>Seed {result.seed}</span> : null}
             </div>
             <div className="caption-panel">

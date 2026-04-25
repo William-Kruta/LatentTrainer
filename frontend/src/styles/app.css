@@ -1752,6 +1752,29 @@ textarea:focus {
   gap: 4px;
 }
 
+/* ── Batch image grid ── */
+
+.image-batch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+  padding: 10px;
+}
+
+.image-batch-cell {
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-deep);
+  aspect-ratio: 1;
+}
+
+.image-batch-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 960px) {

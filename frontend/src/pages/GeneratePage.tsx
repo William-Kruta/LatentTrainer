@@ -53,6 +53,7 @@ const initialForm: GenerateImageRequest = {
   width: 1024,
   height: 1024,
   seed: null,
+  batch_count: 1,
 };
 
 function roundToMultiple(value: number, multiple: number) {
@@ -236,7 +237,7 @@ export function GeneratePage() {
   }
 
   function applyConfig(config: GenerateConfig) {
-    setForm({
+    setForm((cur) => ({
       loras: config.loras,
       model_path: config.model_path,
       positive_prompt: config.positive_prompt,
@@ -248,7 +249,8 @@ export function GeneratePage() {
       width: config.width,
       height: config.height,
       seed: config.seed,
-    });
+      batch_count: cur.batch_count,
+    }));
     setConfigName(config.name);
     setCanvasPreset(detectCanvasPreset(config.width, config.height));
     setSaveFeedback("idle");
@@ -377,6 +379,11 @@ export function GeneratePage() {
                 <span>CFG</span>
                 <input type="number" min={1} step="0.5" value={form.cfg_scale}
                   onChange={(e) => updateForm({ ...form, cfg_scale: Number(e.target.value) })} />
+              </label>
+              <label>
+                <span>Batch</span>
+                <input type="number" min={1} max={16} value={form.batch_count}
+                  onChange={(e) => updateForm({ ...form, batch_count: Math.max(1, Math.min(16, Number(e.target.value))) })} />
               </label>
               <label className="generate-grid-span">
                 <span>Seed</span>
