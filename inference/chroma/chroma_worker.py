@@ -60,13 +60,25 @@ def load_runtime(args: argparse.Namespace):
 
     emit({"type": "stage", "stage": "loading_pipeline"})
     pipeline_path = args.pipeline_repo or find_flux_pipeline()
-    # Chroma is T5-only — it dropped the CLIP conditioning from FLUX.
-    # Loading with text_encoder=None prevents the 77-token CLIP limit error.
+
+    # ChromaPipeline is T5-only. When loading from a FLUX.1-schnell base, that
+    # repo stores T5 in text_encoder_2/tokenizer_2 (the CLIP components are in
+    # text_encoder/tokenizer). We load T5 explicitly and hand it to
+    # ChromaPipeline so it doesn't accidentally receive the CLIP tokenizer.
+    from transformers import T5EncoderModel, T5TokenizerFast
+    emit({"type": "stage", "stage": "loading_t5"})
+    text_encoder = T5EncoderModel.from_pretrained(
+        pipeline_path, subfolder="text_encoder_2", torch_dtype=dtype, local_files_only=True
+    )
+    tokenizer = T5TokenizerFast.from_pretrained(
+        pipeline_path, subfolder="tokenizer_2", local_files_only=True
+    )
+
     pipe = ChromaPipeline.from_pretrained(
         pipeline_path,
         transformer=transformer,
-        text_encoder=None,
-        tokenizer=None,
+        text_encoder=text_encoder,
+        tokenizer=tokenizer,
         torch_dtype=dtype,
         local_files_only=True,
     )
