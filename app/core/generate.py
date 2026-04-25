@@ -120,6 +120,8 @@ class PersistentGenerateWorker:
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        env["HF_HUB_OFFLINE"] = "1"
+        env["TRANSFORMERS_OFFLINE"] = "1"
         process = subprocess.Popen(
             command,
             cwd=BASE_DIR,
@@ -204,6 +206,7 @@ class PersistentGenerateWorker:
                 "height": payload.height,
                 "seed": payload.seed,
                 "batch_count": payload.batch_count,
+                "sampler": payload.sampler,
             }
             self._process.stdin.write(json.dumps(request) + "\n")
             self._process.stdin.flush()
@@ -359,6 +362,7 @@ def _serialize(record: GenerationRecord) -> GenerateImageResponse:
         seed=payload.seed,
         batch_count=payload.batch_count,
         batch_index=record.batch_index,
+        sampler=payload.sampler,
         current_step=record.current_step,
         total_steps=record.total_steps or payload.steps,
         rate_value=record.rate_value,
