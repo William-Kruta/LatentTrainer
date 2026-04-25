@@ -346,6 +346,11 @@ def get_worker_status() -> GenerateWorkerStatus:
     return _worker.status()
 
 
+def stop_worker() -> None:
+    with _worker._lock:
+        _worker._stop_locked()
+
+
 def _serialize(record: GenerationRecord) -> GenerateImageResponse:
     payload = record.payload
     return GenerateImageResponse(
