@@ -6,9 +6,27 @@ interface SdxlResultCardProps {
   isGenerating: boolean;
   saveOutput: boolean;
   onToggleSave: (value: boolean) => void;
+  captionStyle: "none" | "snapchat";
+  captionText: string;
 }
 
-export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave }: SdxlResultCardProps) {
+function CaptionedImage({ url, alt, captionStyle, captionText }: {
+  url: string;
+  alt: string;
+  captionStyle: "none" | "snapchat";
+  captionText: string;
+}) {
+  return (
+    <div className="captioned-image-wrap">
+      <img src={url} alt={alt} />
+      {captionStyle === "snapchat" && captionText ? (
+        <div className="caption-snapchat">{captionText}</div>
+      ) : null}
+    </div>
+  );
+}
+
+export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave, captionStyle, captionText }: SdxlResultCardProps) {
   const isActive = result && (result.status === "pending" || result.status === "running");
   const isDone = result?.status === "completed";
   const isFailed = result?.status === "failed";
@@ -50,13 +68,23 @@ export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave 
             <div className="image-batch-grid">
               {result.image_urls.map((url, i) => (
                 <div key={i} className="image-batch-cell">
-                  <img src={url} alt={`Image ${i + 1}`} />
+                  <CaptionedImage
+                    url={url}
+                    alt={`Image ${i + 1}`}
+                    captionStyle={captionStyle}
+                    captionText={captionText}
+                  />
                 </div>
               ))}
             </div>
           ) : (
             <div className="pipeline-step-image-wrap">
-              <img src={result.image_urls[0]} alt={result.positive_prompt} />
+              <CaptionedImage
+                url={result.image_urls[0]}
+                alt={result.positive_prompt}
+                captionStyle={captionStyle}
+                captionText={captionText}
+              />
             </div>
           )
         ) : isFailed ? (

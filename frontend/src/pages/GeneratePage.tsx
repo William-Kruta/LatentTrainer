@@ -80,6 +80,10 @@ export function GeneratePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [sdxlSaveOutput, setSdxlSaveOutput] = useState(true);
 
+  // Caption overlay
+  const [captionStyle, setCaptionStyle] = useState<"none" | "snapchat">("none");
+  const [captionText, setCaptionText] = useState("");
+
   // Worker
   const [workerStatus, setWorkerStatus] = useState<GenerateWorkerStatus | null>(null);
 
@@ -391,6 +395,23 @@ export function GeneratePage() {
                   onChange={(e) => updateForm({ ...form, seed: e.target.value === "" ? null : Number(e.target.value) })} />
               </label>
             </div>
+            <label>
+              <span>Caption Style</span>
+              <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value as "none" | "snapchat")}>
+                <option value="none">None</option>
+                <option value="snapchat">Snapchat</option>
+              </select>
+            </label>
+            {captionStyle === "snapchat" ? (
+              <label>
+                <span>Caption Text</span>
+                <input
+                  value={captionText}
+                  onChange={(e) => setCaptionText(e.target.value)}
+                  placeholder="Enter caption..."
+                />
+              </label>
+            ) : null}
           </CollapsibleSection>
 
           <CollapsibleSection title="Prompts">
@@ -430,6 +451,8 @@ export function GeneratePage() {
           isGenerating={isGenerating}
           saveOutput={sdxlSaveOutput}
           onToggleSave={setSdxlSaveOutput}
+          captionStyle={captionStyle}
+          captionText={captionText}
         />
 
         {steps.map((step, index) => (

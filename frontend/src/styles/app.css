@@ -1654,6 +1654,7 @@ textarea:focus {
 }
 
 .pipeline-step-image-wrap {
+  position: relative;
   width: 100%;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -1752,6 +1753,39 @@ textarea:focus {
   gap: 4px;
 }
 
+/* ── Caption overlays ── */
+
+.captioned-image-wrap {
+  position: relative;
+  display: block;
+  line-height: 0;
+}
+
+.captioned-image-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.caption-snapchat {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 22%;
+  background: rgba(60, 60, 60, 0.72);
+  color: #fff;
+  text-align: center;
+  padding: 10px 20px;
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── Batch image grid ── */
 
 .image-batch-grid {
@@ -1762,6 +1796,7 @@ textarea:focus {
 }
 
 .image-batch-cell {
+  position: relative;
   border-radius: 4px;
   overflow: hidden;
   background: var(--panel-deep);
