@@ -379,7 +379,7 @@ export function GeneratePage() {
                 loras={form.loras}
                 onChange={(loras) => updateForm({ ...form, loras })}
               />
-            )}
+            ) : null}
           </CollapsibleSection>
 
           <CollapsibleSection title="Canvas">
