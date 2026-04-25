@@ -60,9 +60,13 @@ def load_runtime(args: argparse.Namespace):
 
     emit({"type": "stage", "stage": "loading_pipeline"})
     pipeline_path = args.pipeline_repo or find_flux_pipeline()
+    # Chroma is T5-only — it dropped the CLIP conditioning from FLUX.
+    # Loading with text_encoder=None prevents the 77-token CLIP limit error.
     pipe = ChromaPipeline.from_pretrained(
         pipeline_path,
         transformer=transformer,
+        text_encoder=None,
+        tokenizer=None,
         torch_dtype=dtype,
         local_files_only=True,
     )

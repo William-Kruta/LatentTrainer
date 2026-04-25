@@ -439,10 +439,7 @@ def _validate_generation_request(payload: GenerateImageRequest) -> None:
         raise HTTPException(status_code=422, detail="Model path does not exist.")
     if payload.steps <= 0:
         raise HTTPException(status_code=422, detail="Steps must be greater than 0.")
-    if payload.architecture == "chroma":
-        if not payload.chroma_pipeline_repo:
-            raise HTTPException(status_code=422, detail="Pipeline repo is required for Chroma.")
-    else:
+    if payload.architecture != "chroma":
         for lora in payload.loras:
             lora_path = Path(lora.path).expanduser()
             if not lora_path.exists():
