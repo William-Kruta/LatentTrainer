@@ -35,6 +35,19 @@ const CANVAS_PRESETS = [
 
 const PROMPT_ENHANCE_SETTINGS_KEY = "latenttrainer_prompt_enhance_settings";
 
+const SAMPLER_OPTIONS: { value: string; label: string }[] = [
+  { value: "euler", label: "Euler" },
+  { value: "euler_a", label: "Euler a" },
+  { value: "dpm++_2m", label: "DPM++ 2M" },
+  { value: "dpm++_2m_karras", label: "DPM++ 2M Karras" },
+  { value: "dpm++_sde", label: "DPM++ SDE" },
+  { value: "dpm++_sde_karras", label: "DPM++ SDE Karras" },
+  { value: "ddim", label: "DDIM" },
+  { value: "unipc", label: "UniPC" },
+  { value: "heun", label: "Heun" },
+  { value: "lms", label: "LMS" },
+];
+
 const initialForm: GenerateImageRequest = {
   loras: [],
   model_path: "",
@@ -54,6 +67,7 @@ const initialForm: GenerateImageRequest = {
   height: 1024,
   seed: null,
   batch_count: 1,
+  sampler: "euler",
 };
 
 function roundToMultiple(value: number, multiple: number) {
@@ -255,6 +269,7 @@ export function GeneratePage() {
       height: config.height,
       seed: config.seed,
       batch_count: cur.batch_count,
+      sampler: cur.sampler,
     }));
     setConfigName(config.name);
     setCanvasPreset(detectCanvasPreset(config.width, config.height));
@@ -396,6 +411,14 @@ export function GeneratePage() {
                   onChange={(e) => updateForm({ ...form, seed: e.target.value === "" ? null : Number(e.target.value) })} />
               </label>
             </div>
+            <label>
+              <span>Sampler</span>
+              <select value={form.sampler} onChange={(e) => updateForm({ ...form, sampler: e.target.value })}>
+                {SAMPLER_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
             <label>
               <span>Caption Style</span>
               <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value as "none" | "snapchat")}>
