@@ -177,8 +177,10 @@ class PromptEnhanceSettings(SQLModel):
 
 
 class GenerateImageRequest(SQLModel):
+    architecture: str = "sdxl"
     loras: list["GenerateLoraSpec"] = []
     model_path: str
+    chroma_pipeline_repo: str = ""
     positive_prompt: str
     negative_prompt: str = ""
     prompt_enhance: bool = False
@@ -189,6 +191,7 @@ class GenerateImageRequest(SQLModel):
     height: int = 1024
     seed: int | None = None
     batch_count: int = 1
+    sampler: str = "euler"
 
 
 class GenerateLoraSpec(SQLModel):
@@ -207,6 +210,7 @@ class GenerateImageResponse(SQLModel):
     generation_id: str
     status: GenerationStatus
     image_urls: list[str] = []
+    architecture: str = "sdxl"
     model_path: str
     positive_prompt: str
     negative_prompt: str
@@ -217,6 +221,7 @@ class GenerateImageResponse(SQLModel):
     seed: int | None = None
     batch_count: int = 1
     batch_index: int = 0
+    sampler: str = "euler"
     current_step: int = 0
     total_steps: int
     rate_value: float | None = None

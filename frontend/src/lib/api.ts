@@ -127,8 +127,10 @@ export interface PromptEnhanceSettings {
 }
 
 export interface GenerateImageRequest {
+  architecture: string;
   loras: GenerateLoraSpec[];
   model_path: string;
+  chroma_pipeline_repo: string;
   positive_prompt: string;
   negative_prompt: string;
   prompt_enhance: boolean;
@@ -139,12 +141,14 @@ export interface GenerateImageRequest {
   height: number;
   seed: number | null;
   batch_count: number;
+  sampler: string;
 }
 
 export interface GenerateImageResponse {
   generation_id: string;
   status: "pending" | "running" | "completed" | "failed";
   image_urls: string[];
+  architecture: string;
   model_path: string;
   positive_prompt: string;
   negative_prompt: string;
@@ -155,6 +159,7 @@ export interface GenerateImageResponse {
   seed: number | null;
   batch_count: number;
   batch_index: number;
+  sampler: string;
   current_step: number;
   total_steps: number;
   rate_value: number | null;

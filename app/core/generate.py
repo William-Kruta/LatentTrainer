@@ -24,6 +24,8 @@ GENERATIONS_DIR.mkdir(parents=True, exist_ok=True)
 WORKER_IDLE_TIMEOUT_SECONDS = 600
 WORKER_IDLE_CHECK_INTERVAL_SECONDS = 30
 
+VENV_FLUX_PYTHON = BASE_DIR / ".venv-flux" / "bin" / "python"
+
 
 @dataclass
 class GenerationRecord:
@@ -246,9 +248,180 @@ class PersistentGenerateWorker:
                     raise RuntimeError(event.get("error", "Persistent generate worker failed."))
 
 
+class PersistentChromaWorker:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen[str] | None = None
+        self._signature: tuple[str, str] | None = None  # (ckpt_path, pipeline_repo)
+        self._last_used_at = 0.0
+        self._monitor_thread = threading.Thread(target=self._monitor_idle_timeout, daemon=True)
+        self._monitor_thread.start()
+
+    def _signature_for(self, payload: GenerateImageRequest) -> tuple[str, str]:
+        ckpt_path = str(Path(payload.model_path).expanduser().resolve())
+        return ckpt_path, payload.chroma_pipeline_repo
+
+    def _stop_locked(self) -> None:
+        if self._process is None:
+            return
+        try:
+            if self._process.stdin is not None:
+                self._process.stdin.write(json.dumps({"type": "shutdown"}) + "\n")
+                self._process.stdin.flush()
+        except Exception:
+            pass
+        try:
+            self._process.terminate()
+            self._process.wait(timeout=5)
+        except Exception:
+            try:
+                self._process.kill()
+            except Exception:
+                pass
+        self._process = None
+        self._signature = None
+        self._last_used_at = 0.0
+
+    def _start_locked(self, payload: GenerateImageRequest) -> None:
+        command = [
+            str(VENV_FLUX_PYTHON),
+            str(BASE_DIR / "inference" / "chroma" / "chroma_worker.py"),
+            "--ckpt_path",
+            str(Path(payload.model_path).expanduser()),
+            "--pipeline_repo",
+            payload.chroma_pipeline_repo,
+        ]
+
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["HF_HUB_OFFLINE"] = "1"
+        env["TRANSFORMERS_OFFLINE"] = "1"
+        process = subprocess.Popen(
+            command,
+            cwd=BASE_DIR,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
+        )
+
+        assert process.stdout is not None
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                process.wait()
+                raise RuntimeError("Chroma worker exited during startup.")
+            stripped = line.strip()
+            if not stripped:
+                continue
+            logger.info("chroma-worker startup: %s", stripped)
+            try:
+                event = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "ready":
+                self._process = process
+                self._signature = self._signature_for(payload)
+                self._last_used_at = time.monotonic()
+                return
+            if event.get("type") == "startup_error":
+                process.wait()
+                raise RuntimeError(event.get("error", "Chroma worker failed during startup."))
+
+    def _monitor_idle_timeout(self) -> None:
+        while True:
+            time.sleep(WORKER_IDLE_CHECK_INTERVAL_SECONDS)
+            with self._lock:
+                if self._process is None:
+                    continue
+                if self._process.poll() is not None:
+                    logger.info("Chroma worker exited; clearing cached process state.")
+                    self._stop_locked()
+                    continue
+                if self._last_used_at <= 0:
+                    continue
+                idle_for = time.monotonic() - self._last_used_at
+                if idle_for < WORKER_IDLE_TIMEOUT_SECONDS:
+                    continue
+                logger.info("Stopping Chroma worker after %.1f seconds of inactivity.", idle_for)
+                self._stop_locked()
+
+    def run(
+        self,
+        payload: GenerateImageRequest,
+        output_dir: Path,
+        on_log: Callable[[str], None],
+        on_progress: Callable[[int, int, float | None, str | None, int], None],
+    ) -> list[str]:
+        with self._lock:
+            signature = self._signature_for(payload)
+            process_dead = self._process is None or self._process.poll() is not None
+            if process_dead or self._signature != signature:
+                self._stop_locked()
+                self._start_locked(payload)
+
+            assert self._process is not None
+            assert self._process.stdin is not None
+            assert self._process.stdout is not None
+            self._last_used_at = time.monotonic()
+
+            request = {
+                "prompt": payload.positive_prompt,
+                "negative_prompt": payload.negative_prompt,
+                "output_dir": str(output_dir),
+                "steps": payload.steps,
+                "cfg_scale": payload.cfg_scale,
+                "width": payload.width,
+                "height": payload.height,
+                "seed": payload.seed,
+                "batch_count": payload.batch_count,
+            }
+            self._process.stdin.write(json.dumps(request) + "\n")
+            self._process.stdin.flush()
+
+            while True:
+                line = self._process.stdout.readline()
+                if not line:
+                    self._stop_locked()
+                    raise RuntimeError("Chroma worker exited unexpectedly.")
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                on_log(stripped)
+                try:
+                    event = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+
+                event_type = event.get("type")
+                if event_type == "progress":
+                    on_progress(
+                        int(event.get("step", 0)),
+                        int(event.get("total", payload.steps)),
+                        float(event["rate_value"]) if event.get("rate_value") is not None else None,
+                        event.get("rate_unit"),
+                        int(event.get("batch_index", 0)),
+                    )
+                elif event_type == "stage":
+                    on_log(json.dumps(event))
+                elif event_type == "completed":
+                    filenames = event.get("filenames") or []
+                    if not filenames:
+                        raise RuntimeError("Chroma worker completed without output filenames.")
+                    self._last_used_at = time.monotonic()
+                    return [str(f) for f in filenames]
+                elif event_type == "error":
+                    self._last_used_at = time.monotonic()
+                    raise RuntimeError(event.get("error", "Chroma worker failed."))
+
+
 _generation_lock = threading.Lock()
 _generations: dict[str, GenerationRecord] = {}
 _worker = PersistentGenerateWorker()
+_chroma_worker = PersistentChromaWorker()
 
 
 def _round_to_multiple(value: int, multiple: int = 64) -> int:
@@ -268,12 +441,16 @@ def _validate_generation_request(payload: GenerateImageRequest) -> None:
         raise HTTPException(status_code=422, detail="Model path does not exist.")
     if payload.steps <= 0:
         raise HTTPException(status_code=422, detail="Steps must be greater than 0.")
-    for lora in payload.loras:
-        lora_path = Path(lora.path).expanduser()
-        if not lora_path.exists():
-            raise HTTPException(status_code=422, detail=f"LoRA path does not exist: {lora.path}")
-        if lora.strength < 0 or lora.strength > 1.0:
-            raise HTTPException(status_code=422, detail="LoRA strength must be between 0.0 and 1.0.")
+    if payload.architecture == "chroma":
+        if not payload.chroma_pipeline_repo:
+            raise HTTPException(status_code=422, detail="Pipeline repo is required for Chroma.")
+    else:
+        for lora in payload.loras:
+            lora_path = Path(lora.path).expanduser()
+            if not lora_path.exists():
+                raise HTTPException(status_code=422, detail=f"LoRA path does not exist: {lora.path}")
+            if lora.strength < 0 or lora.strength > 1.0:
+                raise HTTPException(status_code=422, detail="LoRA strength must be between 0.0 and 1.0.")
 
 
 def _enhance_prompt(payload: GenerateImageRequest) -> GenerateImageRequest:
@@ -357,6 +534,7 @@ def _serialize(record: GenerationRecord) -> GenerateImageResponse:
         generation_id=record.generation_id,
         status=record.status,
         image_urls=record.image_urls,
+        architecture=payload.architecture,
         model_path=payload.model_path,
         positive_prompt=payload.positive_prompt,
         negative_prompt=payload.negative_prompt,
@@ -405,20 +583,27 @@ def _run_generation(generation_id: str) -> None:
 
     _update_record(generation_id, status=GenerationStatus.running)
 
+    on_progress = lambda step, total, rate_value, rate_unit, batch_index: _update_record(
+        generation_id,
+        current_step=step,
+        total_steps=total,
+        rate_value=rate_value,
+        rate_unit=rate_unit,
+        batch_index=batch_index,
+    )
+    on_log = lambda line: _append_log(generation_id, line)
+
     try:
-        filenames = _worker.run(
-            payload,
-            output_dir,
-            on_log=lambda line: _append_log(generation_id, line),
-            on_progress=lambda step, total, rate_value, rate_unit, batch_index: _update_record(
-                generation_id,
-                current_step=step,
-                total_steps=total,
-                rate_value=rate_value,
-                rate_unit=rate_unit,
-                batch_index=batch_index,
-            ),
-        )
+        if payload.architecture == "chroma":
+            # Stop SDXL worker to free VRAM before loading Chroma
+            with _worker._lock:
+                _worker._stop_locked()
+            filenames = _chroma_worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress)
+        else:
+            # Stop Chroma worker to free VRAM before loading SDXL
+            with _chroma_worker._lock:
+                _chroma_worker._stop_locked()
+            filenames = _worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress)
     except Exception as exc:
         logger.exception("Generation failed for %s", generation_id)
         _update_record(generation_id, status=GenerationStatus.failed, error=str(exc))

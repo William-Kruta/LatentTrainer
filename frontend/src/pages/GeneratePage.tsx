@@ -49,8 +49,10 @@ const SAMPLER_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const initialForm: GenerateImageRequest = {
+  architecture: "sdxl",
   loras: [],
   model_path: "",
+  chroma_pipeline_repo: "",
   positive_prompt: "",
   negative_prompt: "",
   prompt_enhance: false,
@@ -270,6 +272,8 @@ export function GeneratePage() {
       seed: config.seed,
       batch_count: cur.batch_count,
       sampler: cur.sampler,
+      architecture: cur.architecture,
+      chroma_pipeline_repo: cur.chroma_pipeline_repo,
     }));
     setConfigName(config.name);
     setCanvasPreset(detectCanvasPreset(config.width, config.height));
@@ -333,6 +337,17 @@ export function GeneratePage() {
       {/* Left rail */}
       <div className="generate-rail">
         <form className="generate-rail-form" onSubmit={handleGenerate}>
+          <label>
+            <span>Model Architecture</span>
+            <select
+              value={form.architecture}
+              onChange={(e) => updateForm({ ...form, architecture: e.target.value })}
+            >
+              <option value="sdxl">SDXL</option>
+              <option value="chroma">Chroma</option>
+            </select>
+          </label>
+
           <ConfigSaveRow
             name={configName}
             onNameChange={(n) => { setConfigName(n); setSaveFeedback("idle"); }}
@@ -346,19 +361,34 @@ export function GeneratePage() {
 
           {workerStatus ? <WorkerStatusCard status={workerStatus} /> : null}
 
-          <CollapsibleSection title="Model & LoRAs">
+          <CollapsibleSection title={form.architecture === "chroma" ? "Model" : "Model & LoRAs"}>
             <label>
-              <span>Model Path</span>
+              <span>{form.architecture === "chroma" ? "Transformer Checkpoint" : "Model Path"}</span>
               <input
                 value={form.model_path}
                 onChange={(e) => updateForm({ ...form, model_path: e.target.value })}
-                placeholder="/path/to/model.safetensors"
+                placeholder={
+                  form.architecture === "chroma"
+                    ? "/path/to/chroma.safetensors"
+                    : "/path/to/model.safetensors"
+                }
               />
             </label>
-            <LoraStack
-              loras={form.loras}
-              onChange={(loras) => updateForm({ ...form, loras })}
-            />
+            {form.architecture === "chroma" ? (
+              <label>
+                <span>Pipeline Repo</span>
+                <input
+                  value={form.chroma_pipeline_repo}
+                  onChange={(e) => updateForm({ ...form, chroma_pipeline_repo: e.target.value })}
+                  placeholder="lodestone-rock/chroma or /local/path"
+                />
+              </label>
+            ) : (
+              <LoraStack
+                loras={form.loras}
+                onChange={(loras) => updateForm({ ...form, loras })}
+              />
+            )}
           </CollapsibleSection>
 
           <CollapsibleSection title="Canvas">
@@ -411,14 +441,16 @@ export function GeneratePage() {
                   onChange={(e) => updateForm({ ...form, seed: e.target.value === "" ? null : Number(e.target.value) })} />
               </label>
             </div>
-            <label>
-              <span>Sampler</span>
-              <select value={form.sampler} onChange={(e) => updateForm({ ...form, sampler: e.target.value })}>
-                {SAMPLER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </label>
+            {form.architecture !== "chroma" ? (
+              <label>
+                <span>Sampler</span>
+                <select value={form.sampler} onChange={(e) => updateForm({ ...form, sampler: e.target.value })}>
+                  {SAMPLER_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label>
               <span>Caption Style</span>
               <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value as "none" | "snapchat")}>
