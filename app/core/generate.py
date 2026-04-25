@@ -294,8 +294,6 @@ class PersistentChromaWorker:
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        env["HF_HUB_OFFLINE"] = "1"
-        env["TRANSFORMERS_OFFLINE"] = "1"
         process = subprocess.Popen(
             command,
             cwd=BASE_DIR,

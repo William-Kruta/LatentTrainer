@@ -24,15 +24,11 @@ def load_runtime(args: argparse.Namespace):
     )
 
     emit({"type": "stage", "stage": "loading_pipeline"})
-    pipeline_path = args.pipeline_repo
-    if not os.path.isabs(pipeline_path) and not os.path.isdir(pipeline_path):
-        from huggingface_hub import snapshot_download
-        pipeline_path = snapshot_download(args.pipeline_repo, local_files_only=True)
-
     pipe = ChromaPipeline.from_pretrained(
-        pipeline_path,
+        args.pipeline_repo,
         transformer=transformer,
         torch_dtype=dtype,
+        local_files_only=True,
     )
 
     try:
