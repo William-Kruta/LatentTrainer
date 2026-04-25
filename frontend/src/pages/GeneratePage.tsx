@@ -83,6 +83,7 @@ export function GeneratePage() {
   // Caption overlay
   const [captionStyle, setCaptionStyle] = useState<"none" | "snapchat">("none");
   const [captionText, setCaptionText] = useState("");
+  const [captionTop, setCaptionTop] = useState(22);
 
   // Worker
   const [workerStatus, setWorkerStatus] = useState<GenerateWorkerStatus | null>(null);
@@ -403,14 +404,39 @@ export function GeneratePage() {
               </select>
             </label>
             {captionStyle === "snapchat" ? (
-              <label>
-                <span>Caption Text</span>
-                <input
-                  value={captionText}
-                  onChange={(e) => setCaptionText(e.target.value)}
-                  placeholder="Enter caption..."
-                />
-              </label>
+              <>
+                <label>
+                  <span>Caption Text</span>
+                  <input
+                    value={captionText}
+                    onChange={(e) => setCaptionText(e.target.value)}
+                    placeholder="Enter caption..."
+                  />
+                </label>
+                <div className="caption-position-row">
+                  <span className="caption-position-label">Position</span>
+                  <input
+                    type="range"
+                    className="caption-position-slider"
+                    min={0}
+                    max={90}
+                    value={captionTop}
+                    onChange={(e) => setCaptionTop(Number(e.target.value))}
+                  />
+                  <span className="caption-position-value">{captionTop}%</span>
+                </div>
+                <div
+                  className="caption-preview"
+                  style={{ aspectRatio: `${adjustedWidth} / ${adjustedHeight}` }}
+                >
+                  <div
+                    className="caption-snapchat"
+                    style={{ top: `${captionTop}%` }}
+                  >
+                    {captionText || "Caption preview"}
+                  </div>
+                </div>
+              </>
             ) : null}
           </CollapsibleSection>
 
@@ -453,6 +479,7 @@ export function GeneratePage() {
           onToggleSave={setSdxlSaveOutput}
           captionStyle={captionStyle}
           captionText={captionText}
+          captionTop={captionTop}
         />
 
         {steps.map((step, index) => (

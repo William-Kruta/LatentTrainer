@@ -8,25 +8,27 @@ interface SdxlResultCardProps {
   onToggleSave: (value: boolean) => void;
   captionStyle: "none" | "snapchat";
   captionText: string;
+  captionTop: number;
 }
 
-function CaptionedImage({ url, alt, captionStyle, captionText }: {
+function CaptionedImage({ url, alt, captionStyle, captionText, captionTop }: {
   url: string;
   alt: string;
   captionStyle: "none" | "snapchat";
   captionText: string;
+  captionTop: number;
 }) {
   return (
     <div className="captioned-image-wrap">
       <img src={url} alt={alt} />
       {captionStyle === "snapchat" && captionText ? (
-        <div className="caption-snapchat">{captionText}</div>
+        <div className="caption-snapchat" style={{ top: `${captionTop}%` }}>{captionText}</div>
       ) : null}
     </div>
   );
 }
 
-export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave, captionStyle, captionText }: SdxlResultCardProps) {
+export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave, captionStyle, captionText, captionTop }: SdxlResultCardProps) {
   const isActive = result && (result.status === "pending" || result.status === "running");
   const isDone = result?.status === "completed";
   const isFailed = result?.status === "failed";
@@ -73,6 +75,7 @@ export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave,
                     alt={`Image ${i + 1}`}
                     captionStyle={captionStyle}
                     captionText={captionText}
+                    captionTop={captionTop}
                   />
                 </div>
               ))}
@@ -84,6 +87,7 @@ export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave,
                 alt={result.positive_prompt}
                 captionStyle={captionStyle}
                 captionText={captionText}
+                captionTop={captionTop}
               />
             </div>
           )

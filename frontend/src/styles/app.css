@@ -1753,6 +1753,45 @@ textarea:focus {
   gap: 4px;
 }
 
+/* ── Caption controls ── */
+
+.caption-position-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.caption-position-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.caption-position-slider {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.caption-position-value {
+  font-size: 0.78rem;
+  color: var(--muted);
+  width: 2.8em;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.caption-preview {
+  position: relative;
+  width: 100%;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
 /* ── Caption overlays ── */
 
 .captioned-image-wrap {
