@@ -288,9 +288,9 @@ class PersistentChromaWorker:
             str(BASE_DIR / "inference" / "chroma" / "chroma_worker.py"),
             "--ckpt_path",
             str(Path(payload.model_path).expanduser()),
-            "--pipeline_repo",
-            payload.chroma_pipeline_repo,
         ]
+        if payload.chroma_pipeline_repo:
+            command += ["--pipeline_repo", payload.chroma_pipeline_repo]
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"

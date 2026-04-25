@@ -374,16 +374,7 @@ export function GeneratePage() {
                 }
               />
             </label>
-            {form.architecture === "chroma" ? (
-              <label>
-                <span>Pipeline Repo</span>
-                <input
-                  value={form.chroma_pipeline_repo}
-                  onChange={(e) => updateForm({ ...form, chroma_pipeline_repo: e.target.value })}
-                  placeholder="lodestone-rock/chroma or /local/path"
-                />
-              </label>
-            ) : (
+            {form.architecture !== "chroma" ? (
               <LoraStack
                 loras={form.loras}
                 onChange={(loras) => updateForm({ ...form, loras })}

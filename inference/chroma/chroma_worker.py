@@ -12,6 +12,41 @@ def emit(event: dict) -> None:
     print(json.dumps(event), flush=True)
 
 
+def find_flux_pipeline() -> str:
+    """Locate FLUX.1-schnell or FLUX.1-dev in the local HF hub cache."""
+    import os
+    from pathlib import Path
+
+    hf_home = os.environ.get("HF_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface"
+    )
+    hub_dir = Path(hf_home) / "hub"
+
+    candidates = [
+        "models--black-forest-labs--FLUX.1-schnell",
+        "models--black-forest-labs--FLUX.1-dev",
+    ]
+    for candidate in candidates:
+        snapshots_dir = hub_dir / candidate / "snapshots"
+        if not snapshots_dir.exists():
+            continue
+        # Prefer the hash pointed to by refs/main, fall back to most recent dir.
+        refs_main = hub_dir / candidate / "refs" / "main"
+        if refs_main.exists():
+            commit = refs_main.read_text().strip()
+            snapshot = snapshots_dir / commit
+            if snapshot.exists():
+                return str(snapshot)
+        snapshots = sorted(snapshots_dir.iterdir())
+        if snapshots:
+            return str(snapshots[-1])
+
+    raise RuntimeError(
+        "Could not find FLUX.1-schnell or FLUX.1-dev in the local HuggingFace cache "
+        f"(searched {hub_dir}). Download one of these models first."
+    )
+
+
 def load_runtime(args: argparse.Namespace):
     import torch
     from diffusers import ChromaPipeline, ChromaTransformer2DModel
@@ -24,8 +59,9 @@ def load_runtime(args: argparse.Namespace):
     )
 
     emit({"type": "stage", "stage": "loading_pipeline"})
+    pipeline_path = args.pipeline_repo or find_flux_pipeline()
     pipe = ChromaPipeline.from_pretrained(
-        args.pipeline_repo,
+        pipeline_path,
         transformer=transformer,
         torch_dtype=dtype,
         local_files_only=True,
@@ -134,7 +170,7 @@ def generate_batch(pipe, request: dict) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt_path", required=True, help="Path to Chroma transformer .safetensors")
-    parser.add_argument("--pipeline_repo", required=True, help="HF repo ID or local path for the full pipeline")
+    parser.add_argument("--pipeline_repo", default="", help="Local path to FLUX.1 pipeline (auto-detected if omitted)")
     args = parser.parse_args()
 
     try:
