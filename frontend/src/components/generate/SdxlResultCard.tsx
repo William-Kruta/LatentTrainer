@@ -125,7 +125,7 @@ export function SdxlResultCard({ result, isGenerating, saveOutput, onToggleSave,
                   ))}
                 </div>
               ) : (
-                <div className="pipeline-step-image-wrap" style={{ aspectRatio }}>
+                <div className="pipeline-step-image-wrap">
                   <CaptionedImage
                     url={result.image_urls[0]}
                     alt={result.positive_prompt}

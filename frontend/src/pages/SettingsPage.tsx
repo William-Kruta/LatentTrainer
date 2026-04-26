@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type AppSettings, type GenerateLoraSpec, type LtxModelConfig } from "../lib/api";
 import { useToast } from "../components/Toast";
 import { PathCombobox } from "../components/generate/PathCombobox";
@@ -21,7 +21,7 @@ function RootSection() {
 
   useEffect(() => {
     api.getSettings().then(setForm).catch(() => toast.error("Failed to load settings.")).finally(() => setIsLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -101,7 +101,7 @@ function LtxSection() {
       })
       .catch(() => toast.error("Failed to load LTX config."))
       .finally(() => setIsLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -235,23 +235,116 @@ function ModelSection() {
 type SettingsSection = "root" | "model";
 
 export function SettingsPage() {
+  const toast = useToast();
   const [section, setSection] = useState<SettingsSection>("root");
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = async () => {
+    try {
+      const data = await api.getAllSettings();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "latent-trainer-settings.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Settings exported");
+    } catch (err) {
+      toast.error("Failed to export settings");
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      importSettings(file);
+    }
+    e.target.value = "";
+  };
+
+  const importSettings = async (file: File) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await api.updateAllSettings(data);
+      toast.success("Settings imported successfully");
+      // Reload to reflect changes
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      toast.error("Failed to import settings. Ensure it is a valid JSON file.");
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file && (file.name.endsWith(".json") || file.type === "application/json")) {
+      importSettings(file);
+    } else {
+      toast.error("Please drop a valid .json file");
+    }
+  };
 
   return (
-    <div className="page-stack">
+    <div
+      className={`page-stack settings-page-container ${isDragging ? "dragging" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="settings-drag-overlay">
+          <div className="overlay-content">
+            <div className="eyebrow">Import Settings</div>
+            <h2>Drop JSON file here</h2>
+          </div>
+        </div>
+      )}
+
       <div className="settings-page-header">
         <div>
           <div className="eyebrow">Configuration</div>
           <h2>Settings</h2>
         </div>
-        <select
-          className="settings-section-select"
-          value={section}
-          onChange={(e) => setSection(e.target.value as SettingsSection)}
-        >
-          <option value="root">Root</option>
-          <option value="model">Model</option>
-        </select>
+        <div className="settings-header-actions">
+          <button className="secondary-button" onClick={handleExport}>
+            Export
+          </button>
+          <button className="secondary-button" onClick={handleImportClick}>
+            Import
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            style={{ display: "none" }}
+            accept=".json"
+          />
+          <select
+            className="settings-section-select"
+            value={section}
+            onChange={(e) => setSection(e.target.value as SettingsSection)}
+          >
+            <option value="root">Root</option>
+            <option value="model">Model</option>
+          </select>
+        </div>
       </div>
 
       {section === "root" ? <RootSection /> : <ModelSection />}

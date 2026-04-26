@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { api, type Dataset, type GalleryImage } from "../../lib/api";
+import { api, type Dataset, type GalleryExportResponse, type GalleryImage } from "../../lib/api";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -15,11 +15,15 @@ function formatTimestamp(value: string) {
 interface GalleryViewerProps {
   emptyMessage?: string;
   onSendToImageEdit?: (imageUrl: string) => void;
+  viewportClassName?: string;
+  refreshTrigger?: number;
 }
 
 export function GalleryViewer({
   emptyMessage = "No generated images found in `data/generations`.",
   onSendToImageEdit,
+  viewportClassName,
+  refreshTrigger,
 }: GalleryViewerProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
@@ -29,6 +33,10 @@ export function GalleryViewer({
   const [isWorking, setIsWorking] = useState(false);
   const [showDatasetPicker, setShowDatasetPicker] = useState(false);
   const [targetDatasetId, setTargetDatasetId] = useState<number | null>(null);
+  const [showExportPicker, setShowExportPicker] = useState(false);
+  const [exportDir, setExportDir] = useState("");
+  const [exportResult, setExportResult] = useState<GalleryExportResponse | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const allSelected = images.length > 0 && selectedIds.length === images.length;
   const selectedCount = selectedIds.length;
@@ -54,6 +62,12 @@ export function GalleryViewer({
   useEffect(() => {
     void loadGallery();
   }, []);
+
+  useEffect(() => {
+    if (refreshTrigger == null || refreshTrigger === 0) return;
+    void loadGallery();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTrigger]);
 
   const selectedImages = useMemo(
     () => images.filter((image) => selectedIds.includes(image.id)),
@@ -84,6 +98,21 @@ export function GalleryViewer({
     }
   }
 
+  async function handleExport() {
+    if (selectedIds.length === 0 || !exportDir.trim()) return;
+    setIsWorking(true);
+    try {
+      const result = await api.exportGalleryImages(selectedIds, exportDir.trim());
+      setExportResult(result);
+    } catch (exportError) {
+      console.error(exportError);
+      setError("Failed to export images.");
+      setShowExportPicker(false);
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function handleMoveToDataset() {
     if (selectedIds.length === 0 || targetDatasetId === null) return;
     setIsWorking(true);
@@ -98,6 +127,21 @@ export function GalleryViewer({
       setIsWorking(false);
     }
   }
+
+  const closeLightbox = useCallback(() => setLightboxIndex(null), []);
+  const lightboxPrev = useCallback(() => setLightboxIndex((i) => (i === null ? null : (i - 1 + images.length) % images.length)), [images.length]);
+  const lightboxNext = useCallback(() => setLightboxIndex((i) => (i === null ? null : (i + 1) % images.length)), [images.length]);
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeLightbox();
+      else if (e.key === "ArrowLeft") lightboxPrev();
+      else if (e.key === "ArrowRight") lightboxNext();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxIndex, closeLightbox, lightboxPrev, lightboxNext]);
 
   return (
     <>
@@ -118,6 +162,14 @@ export function GalleryViewer({
             Add To Dataset
           </button>
           <button
+            className="secondary-button"
+            type="button"
+            onClick={() => { setExportResult(null); setShowExportPicker(true); }}
+            disabled={selectedCount === 0 || isWorking}
+          >
+            Export
+          </button>
+          <button
             className="danger-button"
             type="button"
             onClick={() => void handleDelete(selectedIds)}
@@ -130,83 +182,180 @@ export function GalleryViewer({
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      {isLoading ? (
-        <div className="empty-state">Loading gallery...</div>
-      ) : images.length === 0 ? (
-        <div className="empty-state">{emptyMessage}</div>
-      ) : (
-        <div className="gallery-grid">
-          {images.map((image) => {
-            const isSelected = selectedIds.includes(image.id);
-            const isVideo = image.media_type === "video";
-            const downloadHref = isVideo ? (image.video_url ?? "") : image.image_url;
-            return (
-              <article key={image.id} className={isSelected ? "gallery-tile selected" : "gallery-tile"}>
-                <div className="gallery-tile-image">
-                  {isVideo ? (
-                    <video
-                      src={image.video_url ?? ""}
-                      className="gallery-tile-video"
-                      muted
-                      loop
-                      playsInline
-                      preload="metadata"
-                      onMouseEnter={(e) => void (e.currentTarget as HTMLVideoElement).play()}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLVideoElement).pause(); (e.currentTarget as HTMLVideoElement).currentTime = 0; }}
-                    />
-                  ) : (
-                    <img src={image.image_url} alt={image.filename} loading="lazy" />
-                  )}
-                  {isVideo ? <span className="gallery-tile-video-badge">VIDEO</span> : null}
-                </div>
-                <div className="gallery-tile-top">
-                  <label className="gallery-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleImage(image.id)}
-                    />
-                  </label>
-                  <div className="gallery-tile-actions">
-                    {onSendToImageEdit && !isVideo ? (
-                      <button
-                        className="gallery-action-btn"
-                        type="button"
-                        title="Send to Image Edit"
-                        onClick={() => onSendToImageEdit(image.image_url)}
-                      >✏</button>
-                    ) : null}
-                    <a
-                      href={downloadHref}
-                      download={image.filename}
-                      className="gallery-action-btn"
-                      title="Download"
-                      onClick={(e) => e.stopPropagation()}
-                    >↓</a>
-                    <button
-                      className="gallery-delete"
-                      type="button"
-                      aria-label={`Delete ${image.filename}`}
-                      onClick={() => void handleDelete([image.id])}
-                    >🗑</button>
+      <div className={viewportClassName}>
+        {isLoading ? (
+          <div className="empty-state">Loading gallery...</div>
+        ) : images.length === 0 ? (
+          <div className="empty-state">{emptyMessage}</div>
+        ) : (
+          <div className="gallery-grid">
+            {images.map((image) => {
+              const isSelected = selectedIds.includes(image.id);
+              const isVideo = image.media_type === "video";
+              const downloadHref = isVideo ? (image.video_url ?? "") : image.image_url;
+              const tileIndex = images.indexOf(image);
+              return (
+                <article key={image.id} className={isSelected ? "gallery-tile selected" : "gallery-tile"}>
+                  <div className="gallery-tile-image" onClick={() => setLightboxIndex(tileIndex)} style={{ cursor: "zoom-in" }}>
+                    {isVideo ? (
+                      <video
+                        src={image.video_url ?? ""}
+                        className="gallery-tile-video"
+                        muted
+                        loop
+                        playsInline
+                        preload="metadata"
+                        onMouseEnter={(e) => void (e.currentTarget as HTMLVideoElement).play()}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLVideoElement).pause(); (e.currentTarget as HTMLVideoElement).currentTime = 0; }}
+                      />
+                    ) : (
+                      <img src={image.image_url} alt={image.filename} loading="lazy" />
+                    )}
+                    {isVideo ? <span className="gallery-tile-video-badge">VIDEO</span> : null}
                   </div>
+                  <div className="gallery-tile-top">
+                    <label className="gallery-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleImage(image.id)}
+                      />
+                    </label>
+                    <div className="gallery-tile-actions">
+                      {onSendToImageEdit && !isVideo ? (
+                        <button
+                          className="gallery-action-btn"
+                          type="button"
+                          title="Send to Image Edit"
+                          onClick={() => onSendToImageEdit(image.image_url)}
+                        >✏</button>
+                      ) : null}
+                      <a
+                        href={downloadHref}
+                        download={image.filename}
+                        className="gallery-action-btn"
+                        title="Download"
+                        onClick={(e) => e.stopPropagation()}
+                      >↓</a>
+                      <button
+                        className="gallery-delete"
+                        type="button"
+                        aria-label={`Delete ${image.filename}`}
+                        onClick={() => void handleDelete([image.id])}
+                      >🗑</button>
+                    </div>
+                  </div>
+                  <div className="gallery-tile-meta">
+                    <strong title={image.filename}>{image.filename}</strong>
+                    <span>
+                      {!isVideo && image.width && image.height
+                        ? `${image.width} × ${image.height} · `
+                        : null}
+                      {formatBytes(image.size_bytes)}
+                    </span>
+                    <span>{formatTimestamp(image.created_at)}</span>
+                    <span className="gallery-source">Run {image.generation_id}</span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {showExportPicker ? (
+        <div className="modal-backdrop" onClick={() => setShowExportPicker(false)}>
+          <div className="modal-box" onClick={(event) => event.stopPropagation()}>
+            {exportResult ? (
+              <>
+                <div className="modal-header">
+                  <span className="eyebrow">Export Complete</span>
+                  <h3>Exported {exportResult.exported} file{exportResult.exported === 1 ? "" : "s"}</h3>
                 </div>
-                <div className="gallery-tile-meta">
-                  <strong title={image.filename}>{image.filename}</strong>
-                  <span>
-                    {!isVideo && image.width && image.height
-                      ? `${image.width} × ${image.height} · `
-                      : null}
-                    {formatBytes(image.size_bytes)}
+                <div className="modal-field">
+                  <span className="modal-hint">
+                    Files copied to:
                   </span>
-                  <span>{formatTimestamp(image.created_at)}</span>
-                  <span className="gallery-source">Run {image.generation_id}</span>
+                  <code className="gallery-export-path">{exportResult.destination_dir}</code>
                 </div>
-              </article>
-            );
-          })}
+                <div className="modal-actions">
+                  <button className="primary-button" type="button" onClick={() => setShowExportPicker(false)}>
+                    Done
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="modal-header">
+                  <span className="eyebrow">Export Images</span>
+                  <h3>Choose Destination</h3>
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">Destination Directory</label>
+                  <input
+                    type="text"
+                    value={exportDir}
+                    onChange={(e) => setExportDir(e.target.value)}
+                    placeholder="/home/user/exports"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") void handleExport(); }}
+                  />
+                  <span className="modal-hint">
+                    {selectedCount} file{selectedCount === 1 ? "" : "s"} will be copied to this directory. It will be created if it does not exist.
+                  </span>
+                </div>
+                <div className="modal-actions">
+                  <button className="secondary-button" type="button" onClick={() => setShowExportPicker(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void handleExport()}
+                    disabled={!exportDir.trim() || isWorking}
+                  >
+                    {isWorking ? "Exporting…" : "Export"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-      )}
+      ) : null}
+
+      {lightboxIndex !== null && images[lightboxIndex] ? (() => {
+        const lb = images[lightboxIndex];
+        const isVideo = lb.media_type === "video";
+        return (
+          <div className="lightbox-backdrop" onClick={closeLightbox}>
+            <div className="lightbox-box" onClick={(e) => e.stopPropagation()}>
+              <button className="lightbox-close" type="button" onClick={closeLightbox} aria-label="Close">✕</button>
+              <button className="lightbox-nav lightbox-prev" type="button" onClick={lightboxPrev} aria-label="Previous">‹</button>
+              <div className="lightbox-media">
+                {isVideo ? (
+                  <video
+                    key={lb.id}
+                    src={lb.video_url ?? ""}
+                    className="lightbox-video"
+                    controls
+                    autoPlay
+                    loop
+                  />
+                ) : (
+                  <img key={lb.id} src={lb.image_url} alt={lb.filename} className="lightbox-img" />
+                )}
+              </div>
+              <button className="lightbox-nav lightbox-next" type="button" onClick={lightboxNext} aria-label="Next">›</button>
+              <div className="lightbox-caption">
+                <span>{lb.filename}</span>
+                {lb.width && lb.height ? <span>{lb.width} × {lb.height}</span> : null}
+                <span>{lightboxIndex + 1} / {images.length}</span>
+                <a href={isVideo ? (lb.video_url ?? "") : lb.image_url} download={lb.filename} className="lightbox-download">↓ Download</a>
+              </div>
+            </div>
+          </div>
+        );
+      })() : null}
 
       {showDatasetPicker ? (
         <div className="modal-backdrop" onClick={() => setShowDatasetPicker(false)}>

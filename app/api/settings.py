@@ -121,3 +121,39 @@ def update_ltx_config(
     session.commit()
     session.refresh(config)
     return config
+
+
+@router.get("/all")
+def get_all_settings(session: Session = Depends(get_session)) -> dict:
+    return {
+        "root": _get_or_create(session),
+        "ltx": _get_or_create_ltx(session),
+    }
+
+
+@router.post("/all")
+def update_all_settings(
+    body: dict[str, dict],
+    session: Session = Depends(get_session),
+) -> dict:
+    results = {}
+    if "root" in body:
+        settings = _get_or_create(session)
+        for k, v in body["root"].items():
+            if hasattr(settings, k) and k != "id":
+                setattr(settings, k, v)
+        session.add(settings)
+        results["root"] = settings
+
+    if "ltx" in body:
+        config = _get_or_create_ltx(session)
+        for k, v in body["ltx"].items():
+            if hasattr(config, k) and k != "id":
+                setattr(config, k, v)
+        session.add(config)
+        results["ltx"] = config
+
+    session.commit()
+    for r in results.values():
+        session.refresh(r)
+    return results

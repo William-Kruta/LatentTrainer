@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type GenerateLoraSpec, type ImageEditImport, type ImageEditJobStatus } from "../../lib/api";
-import { CollapsibleSection } from "./CollapsibleSection";
 import { LoraStack } from "./LoraStack";
 import { GenerationProgress } from "./GenerationProgress";
 
@@ -31,6 +30,15 @@ const STAGE_LABELS: Record<string, string> = {
 
 const MAX_REFS = 5;
 
+const IE_TABS = [
+  { id: "model", label: "Model" },
+  { id: "canvas", label: "Canvas" },
+  { id: "parameters", label: "Parameters" },
+  { id: "prompt", label: "Prompt" },
+] as const;
+
+type IETabId = (typeof IE_TABS)[number]["id"];
+
 interface RefImage {
   file: File;
   objectUrl: string;
@@ -57,6 +65,7 @@ export function ImageEditPanel({ initialImport, onImportConsumed, initialRefUrls
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [result, setResult] = useState<ImageEditJobStatus | null>(null);
+  const [activeTab, setActiveTab] = useState<IETabId>("model");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -202,101 +211,132 @@ export function ImageEditPanel({ initialImport, onImportConsumed, initialRefUrls
       {/* Left rail */}
       <div className="generate-rail">
         <form className="generate-rail-form" onSubmit={handleSubmit}>
-          <CollapsibleSection title="Model & LoRAs">
-            <label>
-              <span>HF Repo</span>
-              <input
-                value={hfRepo}
-                onChange={(e) => setHfRepo(e.target.value)}
-                placeholder="black-forest-labs/FLUX.2-klein-9B"
-              />
-            </label>
-            <LoraStack loras={loras} onChange={setLoras} />
-          </CollapsibleSection>
-
-          <CollapsibleSection title="Canvas">
-            <label>
-              <span>Preset</span>
-              <select value={canvasPreset} onChange={(e) => handleCanvasPreset(e.target.value)}>
-                {CANVAS_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
-                ))}
-              </select>
-            </label>
-            <div className="generate-grid">
-              <label>
-                <span>Width</span>
-                <input type="number" min={64} step={8} value={width} disabled={canvasPreset !== "manual"}
-                  onChange={(e) => setWidth(Number(e.target.value))} />
-              </label>
-              <label>
-                <span>Height</span>
-                <input type="number" min={64} step={8} value={height} disabled={canvasPreset !== "manual"}
-                  onChange={(e) => setHeight(Number(e.target.value))} />
-              </label>
+          <section className="section-card generate-settings-card">
+            <div className="generate-settings-header-row">
+              <span className="generate-settings-title">Image Edit</span>
             </div>
-          </CollapsibleSection>
 
-          <CollapsibleSection title="Parameters">
-            <div className="generate-grid">
-              <label>
-                <span>Steps</span>
-                <input type="number" min={1} max={50} value={steps}
-                  onChange={(e) => setSteps(Number(e.target.value))} />
-              </label>
-              <label>
-                <span>Limit</span>
-                <input type="number" min={1} max={2} value={limit ?? ""}
-                  placeholder="auto"
-                  onChange={(e) => setLimit(e.target.value === "" ? null : Number(e.target.value))} />
-              </label>
-            </div>
-          </CollapsibleSection>
-
-          <CollapsibleSection title="Reference Images">
-            <div className="ref-image-grid">
-              {refImages.map((ref, i) => (
-                <div key={i} className="ref-image-cell">
-                  <img src={ref.objectUrl} alt={`Reference ${i + 1}`} />
+            <div className="generate-settings-shell">
+              <div className="generate-settings-tabs" role="tablist" aria-label="Image Edit settings sections">
+                {IE_TABS.map((tab) => (
                   <button
+                    key={tab.id}
                     type="button"
-                    className="ref-image-remove"
-                    onClick={() => removeRef(i)}
-                    aria-label="Remove image"
-                  >×</button>
-                </div>
-              ))}
-              {refImages.length < MAX_REFS ? (
-                <button
-                  type="button"
-                  className="ref-image-add"
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Add reference image"
-                >
-                  <span>＋</span>
-                  <span className="ref-image-add-label">Add Image</span>
-                </button>
-              ) : null}
-            </div>
-            <p className="panel-muted">{refImages.length}/{MAX_REFS} images — max 2 used for inference</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              style={{ display: "none" }}
-              onChange={(e) => handleFileInput(e.target.files)}
-            />
-          </CollapsibleSection>
+                    role="tab"
+                    aria-selected={activeTab === tab.id}
+                    className={`generate-settings-tab${activeTab === tab.id ? " active" : ""}`}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
 
-          <CollapsibleSection title="Prompt">
-            <textarea
-              rows={6}
-              value={prompt}
-              placeholder="Describe the edit to apply…"
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-          </CollapsibleSection>
+              <div className="generate-settings-body">
+                {activeTab === "model" ? (
+                  <>
+                    <label>
+                      <span>HF Repo</span>
+                      <input
+                        value={hfRepo}
+                        onChange={(e) => setHfRepo(e.target.value)}
+                        placeholder="black-forest-labs/FLUX.2-klein-9B"
+                      />
+                    </label>
+                    <LoraStack loras={loras} onChange={setLoras} />
+                  </>
+                ) : null}
+
+                {activeTab === "canvas" ? (
+                  <>
+                    <label>
+                      <span>Preset</span>
+                      <select value={canvasPreset} onChange={(e) => handleCanvasPreset(e.target.value)}>
+                        {CANVAS_PRESETS.map((p) => (
+                          <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="generate-grid">
+                      <label>
+                        <span>Width</span>
+                        <input type="number" min={64} step={8} value={width} disabled={canvasPreset !== "manual"}
+                          onChange={(e) => setWidth(Number(e.target.value))} />
+                      </label>
+                      <label>
+                        <span>Height</span>
+                        <input type="number" min={64} step={8} value={height} disabled={canvasPreset !== "manual"}
+                          onChange={(e) => setHeight(Number(e.target.value))} />
+                      </label>
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === "parameters" ? (
+                  <div className="generate-grid">
+                    <label>
+                      <span>Steps</span>
+                      <input type="number" min={1} max={50} value={steps}
+                        onChange={(e) => setSteps(Number(e.target.value))} />
+                    </label>
+                    <label>
+                      <span>Limit</span>
+                      <input type="number" min={1} max={2} value={limit ?? ""}
+                        placeholder="auto"
+                        onChange={(e) => setLimit(e.target.value === "" ? null : Number(e.target.value))} />
+                    </label>
+                  </div>
+                ) : null}
+
+                {activeTab === "prompt" ? (
+                  <>
+                    <div className="ref-image-grid">
+                      {refImages.map((ref, i) => (
+                        <div key={i} className="ref-image-cell">
+                          <img src={ref.objectUrl} alt={`Reference ${i + 1}`} />
+                          <button
+                            type="button"
+                            className="ref-image-remove"
+                            onClick={() => removeRef(i)}
+                            aria-label="Remove image"
+                          >×</button>
+                        </div>
+                      ))}
+                      {refImages.length < MAX_REFS ? (
+                        <button
+                          type="button"
+                          className="ref-image-add"
+                          onClick={() => fileInputRef.current?.click()}
+                          aria-label="Add reference image"
+                        >
+                          <span>＋</span>
+                          <span className="ref-image-add-label">Add Image</span>
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="panel-muted">{refImages.length}/{MAX_REFS} images — max 2 used for inference</p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={(e) => handleFileInput(e.target.files)}
+                    />
+                    <label>
+                      <span>Prompt</span>
+                      <textarea
+                        rows={6}
+                        value={prompt}
+                        placeholder="Describe the edit to apply…"
+                        onChange={(e) => setPrompt(e.target.value)}
+                      />
+                    </label>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </section>
 
           {error ? <div className="error-banner">{error}</div> : null}
 

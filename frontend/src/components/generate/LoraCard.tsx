@@ -10,8 +10,15 @@ interface LoraCardProps {
   onRemove: () => void;
 }
 
+function pathStem(path: string): string {
+  const filename = path.split("/").pop() ?? "";
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(0, dot) : filename;
+}
+
 export function LoraCard({ lora, index, loraRoot, loraFiles, onUpdate, onRemove }: LoraCardProps) {
   const clamp = (v: number) => Math.max(0, Math.min(2, v));
+  const stem = lora.path ? pathStem(lora.path) : null;
 
   return (
     <div className="lora-card">
@@ -32,6 +39,17 @@ export function LoraCard({ lora, index, loraRoot, loraFiles, onUpdate, onRemove 
           onChange={(path) => onUpdate({ ...lora, path })}
         />
       </label>
+      {stem ? (
+        <div className="path-stem-row">
+          <span className="path-stem-label">{stem}</span>
+          <button
+            type="button"
+            className="path-copy-btn"
+            title="Copy full path"
+            onClick={() => void navigator.clipboard.writeText(lora.path)}
+          >⧉</button>
+        </div>
+      ) : null}
       <div className="lora-strength-row">
         <span className="lora-strength-label">Strength</span>
         <input

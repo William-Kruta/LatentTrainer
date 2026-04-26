@@ -6,15 +6,12 @@ import {
   type GenerateConfig,
   type GenerateConfigSummary,
   type GenerateImageRequest,
-  type GenerateQueueStatus,
-  type GenerateWorkerStatus,
   type ImageEditImport,
   type Job,
   type PromptEnhanceSettings,
 } from "../lib/api";
 import { type PipelineStep, makeStep } from "../lib/pipeline";
 import { useToast } from "../components/Toast";
-import { CollapsibleSection } from "../components/generate/CollapsibleSection";
 import { ConfigSaveRow } from "../components/generate/ConfigSaveRow";
 import { ImageEditPanel } from "../components/generate/ImageEditPanel";
 import { LoraStack } from "../components/generate/LoraStack";
@@ -24,9 +21,21 @@ import { PromptEnhanceSettingsModal } from "../components/generate/PromptEnhance
 import { SdxlResultCard } from "../components/generate/SdxlResultCard";
 import { WorkerStatusCard } from "../components/generate/WorkerStatusCard";
 import { GalleryViewer } from "../components/gallery/GalleryViewer";
+import { VideoPanel } from "../components/generate/VideoPanel";
+import { useGenerationState } from "../hooks/useGenerationState";
+import { useWorkerStatus } from "../hooks/useWorkerStatus";
 
 const PROMPT_HISTORY_KEY = "latenttrainer_prompt_history";
 const MAX_PROMPT_HISTORY = 20;
+const GENERATE_DRAFT_KEY = "latenttrainer_generate_draft_v1";
+const MAX_RECENT_RUNS = 8;
+const LORA_PRESETS_KEY = "latenttrainer_lora_presets";
+
+interface LoraPreset {
+  id: string;
+  name: string;
+  loras: Array<{ path: string; strength: number }>;
+}
 
 function loadPromptHistory(): string[] {
   try {
@@ -41,7 +50,29 @@ function pushPromptHistory(prompt: string) {
   localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(next));
 }
 
-type GenerateMode = "text2image" | "image-edit" | "coming-soon";
+function deletePromptHistoryItem(prompt: string) {
+  const next = loadPromptHistory().filter((p) => p !== prompt);
+  localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(next));
+}
+
+function loadLoraPresets(): LoraPreset[] {
+  try { return JSON.parse(localStorage.getItem(LORA_PRESETS_KEY) ?? "[]") as LoraPreset[]; }
+  catch { return []; }
+}
+
+function saveLoraPreset(name: string, loras: Array<{ path: string; strength: number }>) {
+  if (!name.trim()) return;
+  const existing = loadLoraPresets().filter((p) => p.name !== name);
+  const next: LoraPreset[] = [{ id: Date.now().toString(), name, loras }, ...existing];
+  localStorage.setItem(LORA_PRESETS_KEY, JSON.stringify(next));
+}
+
+function deleteLoraPreset(id: string) {
+  const next = loadLoraPresets().filter((p) => p.id !== id);
+  localStorage.setItem(LORA_PRESETS_KEY, JSON.stringify(next));
+}
+
+type GenerateMode = "text2image" | "image-edit" | "video";
 
 const CANVAS_PRESETS = [
   { id: "manual", label: "Manual", width: null, height: null },
@@ -72,6 +103,27 @@ const SAMPLER_OPTIONS: { value: string; label: string }[] = [
   { value: "heun", label: "Heun" },
   { value: "lms", label: "LMS" },
 ];
+
+const SETTINGS_TABS = [
+  { id: "model", label: "Model" },
+  { id: "canvas", label: "Canvas" },
+  { id: "parameters", label: "Parameters" },
+  { id: "prompts", label: "Prompts" },
+] as const;
+
+type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
+type ValidationTarget = SettingsTabId | "general";
+
+type RecentRunRecord = {
+  generation_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  created_at: string;
+  updated_at: string;
+  request: GenerateImageRequest;
+  image_urls: string[];
+  error: string | null;
+  stage: string | null;
+};
 
 const initialForm: GenerateImageRequest = {
   architecture: "sdxl",
@@ -105,9 +157,20 @@ function detectCanvasPreset(width: number, height: number) {
   return CANVAS_PRESETS.find((p) => p.width === width && p.height === height)?.id ?? "manual";
 }
 
+function upsertRecentRun(current: RecentRunRecord[], next: RecentRunRecord): RecentRunRecord[] {
+  return [next, ...current.filter((run) => run.generation_id !== next.generation_id)].slice(0, MAX_RECENT_RUNS);
+}
+
+function formatRunTime(value: string) {
+  return new Date(value).toLocaleString();
+}
+
 export function GeneratePage() {
   const toast = useToast();
   const t2iFormRef = useRef<HTMLFormElement>(null);
+  const previousResultStatusRef = useRef<string | null>(null);
+  const recentRunsRef = useRef<RecentRunRecord[]>([]);
+  const submittedPayloadsRef = useRef<Record<string, GenerateImageRequest>>({});
 
   const [mode, setMode] = useState<GenerateMode>("text2image");
   const [imageEditImport, setImageEditImport] = useState<ImageEditImport | null>(null);
@@ -124,12 +187,6 @@ export function GeneratePage() {
   const [error, setError] = useState<string | null>(null);
   const [isImportDragOver, setIsImportDragOver] = useState(false);
 
-  // SDXL result state
-  const [result, setResult] = useState<import("../lib/api").GenerateImageResponse | null>(null);
-  const [currentGenerationId, setCurrentGenerationId] = useState<string | null>(null);
-  const [isSubmittingGeneration, setIsSubmittingGeneration] = useState(false);
-
-  const isGenerating = result?.status === "pending" || result?.status === "running";
   const [sdxlSaveOutput, setSdxlSaveOutput] = useState(true);
 
   // Caption overlay
@@ -137,10 +194,6 @@ export function GeneratePage() {
   const [captionText, setCaptionText] = useState("");
   const [captionTop, setCaptionTop] = useState(22);
 
-  // Worker
-  const [workerStatus, setWorkerStatus] = useState<GenerateWorkerStatus | null>(null);
-  const [queueStatus, setQueueStatus] = useState<GenerateQueueStatus | null>(null);
-  const [isUnloading, setIsUnloading] = useState(false);
   const [trainingJobToConfirm, setTrainingJobToConfirm] = useState<Job | null>(null);
 
   // Model combobox
@@ -150,15 +203,78 @@ export function GeneratePage() {
   // Prompt history
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [showPromptHistory, setShowPromptHistory] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>("model");
+  const [recentRuns, setRecentRuns] = useState<RecentRunRecord[]>([]);
+  const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
+
+  // LoRA presets
+  const [loraPresets, setLoraPresets] = useState<LoraPreset[]>([]);
+  const [loraPresetName, setLoraPresetName] = useState("");
+  const [validationMessages, setValidationMessages] = useState<Array<{ target: ValidationTarget; message: string }>>([]);
 
   // Pipeline steps
   const [steps, setSteps] = useState<PipelineStep[]>([]);
+  const { workerStatus, queueStatus, isUnloading, handleUnloadWorker, refreshWorkerStatus } = useWorkerStatus({ setError });
+  const {
+    result,
+    isGenerating,
+    isSubmittingGeneration,
+    submitGeneration,
+    cancelLatest,
+    clearResult,
+  } = useGenerationState({
+    setError,
+    onError: (message) => toast.error(message),
+    refreshWorkerStatus,
+  });
 
   const adjustedWidth = roundToMultiple(form.width, 64);
   const adjustedHeight = roundToMultiple(form.height, 64);
   const isRounded = adjustedWidth !== form.width || adjustedHeight !== form.height;
 
   // ── Load saved prompt enhance settings ──────────────────────────
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(GENERATE_DRAFT_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as {
+        form?: GenerateImageRequest;
+        configName?: string;
+        canvasPreset?: string;
+        captionStyle?: "none" | "snapchat";
+        captionText?: string;
+        captionTop?: number;
+        activeSettingsTab?: SettingsTabId;
+      };
+      if (parsed.form) {
+        setForm(parsed.form);
+        setCanvasPreset(parsed.canvasPreset ?? detectCanvasPreset(parsed.form.width, parsed.form.height));
+      }
+      if (parsed.configName) setConfigName(parsed.configName);
+      if (parsed.captionStyle) setCaptionStyle(parsed.captionStyle);
+      if (parsed.captionText) setCaptionText(parsed.captionText);
+      if (typeof parsed.captionTop === "number") setCaptionTop(parsed.captionTop);
+      if (parsed.activeSettingsTab) setActiveSettingsTab(parsed.activeSettingsTab);
+    } catch {
+      // ignore invalid draft state
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      GENERATE_DRAFT_KEY,
+      JSON.stringify({
+        form,
+        configName,
+        canvasPreset,
+        captionStyle,
+        captionText,
+        captionTop,
+        activeSettingsTab,
+      }),
+    );
+  }, [form, configName, canvasPreset, captionStyle, captionText, captionTop, activeSettingsTab]);
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem(PROMPT_ENHANCE_SETTINGS_KEY);
@@ -182,51 +298,6 @@ export function GeneratePage() {
     void load();
   }, []);
 
-  // ── Worker and queue polling ──────────────────────────────────────
-  useEffect(() => {
-    async function poll() {
-      try {
-        const [worker, queue] = await Promise.all([
-          api.getGenerateWorkerStatus(),
-          api.getGenerateQueueStatus(),
-        ]);
-        setWorkerStatus(worker);
-        setQueueStatus(queue);
-      } catch {
-        /* ignore */
-      }
-    }
-    void poll();
-    const id = window.setInterval(() => void poll(), 500);
-    return () => window.clearInterval(id);
-  }, []);
-
-  // ── Poll current generation until terminal ────────────────────────
-  useEffect(() => {
-    if (!currentGenerationId) return;
-    const genId = currentGenerationId;
-    let cancelled = false;
-
-    const id = window.setInterval(async () => {
-      if (cancelled) return;
-      try {
-        const next = await api.getGeneration(genId);
-        if (cancelled) return;
-        setResult(next);
-        if (next.status === "completed" || next.status === "failed") {
-          window.clearInterval(id);
-          if (next.status === "failed") {
-            setError(next.error ?? "Generation failed.");
-          }
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }, 500);
-
-    return () => { cancelled = true; window.clearInterval(id); };
-  }, [currentGenerationId]);
-
   // ── Load model files for combobox ────────────────────────────────
   useEffect(() => {
     api.getModelFiles().then((res) => {
@@ -240,16 +311,45 @@ export function GeneratePage() {
     setPromptHistory(loadPromptHistory());
   }, []);
 
+  // ── Load LoRA presets ─────────────────────────────────────────────
+  useEffect(() => {
+    setLoraPresets(loadLoraPresets());
+  }, []);
+
   // ── Ctrl+Enter to generate ────────────────────────────────────────
   useEffect(() => {
     function handler(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && mode === "text2image") {
+      if (mode !== "text2image") return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
         t2iFormRef.current?.requestSubmit();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void handleSaveConfig();
+        return;
+      }
+
+      if (e.altKey && ["1", "2", "3", "4"].includes(e.key)) {
+        e.preventDefault();
+        setActiveSettingsTab(SETTINGS_TABS[Number(e.key) - 1].id);
+        return;
+      }
+
+      if (e.altKey && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        const rerunnable = recentRunsRef.current.find((run) => run.status === "completed" || run.status === "failed");
+        if (rerunnable) {
+          void rerunRecentRun(rerunnable);
+        }
       }
     }
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [mode]);
+  }, [mode, recentRuns]);
 
   // ── Save feedback auto-clear ──────────────────────────────────────
   useEffect(() => {
@@ -257,6 +357,62 @@ export function GeneratePage() {
     const id = window.setTimeout(() => setSaveFeedback("idle"), 2500);
     return () => window.clearTimeout(id);
   }, [saveFeedback]);
+
+  useEffect(() => {
+    if (!result) return;
+    const nextRecord: RecentRunRecord = {
+      generation_id: result.generation_id,
+      status: result.status,
+      created_at: recentRunsRef.current.find((run) => run.generation_id === result.generation_id)?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      request: submittedPayloadsRef.current[result.generation_id] ?? {
+        architecture: result.architecture,
+        loras: [],
+        model_path: result.model_path,
+        chroma_pipeline_repo: "",
+        positive_prompt: result.positive_prompt,
+        negative_prompt: result.negative_prompt,
+        prompt_enhance: false,
+        prompt_enhance_settings: form.prompt_enhance_settings,
+        steps: result.steps,
+        cfg_scale: result.cfg_scale,
+        width: result.width,
+        height: result.height,
+        seed: result.seed,
+        batch_count: result.batch_count,
+        sampler: result.sampler,
+      },
+      image_urls: result.image_urls,
+      error: result.error,
+      stage: result.stage,
+    };
+    setRecentRuns((current) => {
+      const next = upsertRecentRun(current, nextRecord);
+      recentRunsRef.current = next;
+      return next;
+    });
+  }, [result]);
+
+  useEffect(() => {
+    recentRunsRef.current = recentRuns;
+  }, [recentRuns]);
+
+  useEffect(() => {
+    const previous = previousResultStatusRef.current;
+    const next = result?.status ?? null;
+    if (previous === next) return;
+
+    if (previous && next === "completed") {
+      toast.success("Generation completed.");
+      setGalleryRefreshKey((k) => k + 1);
+    } else if (previous && next === "failed") {
+      toast.error(result?.error ?? "Generation failed.");
+    } else if (!previous && next === "pending") {
+      toast.info("Generation queued.");
+    }
+
+    previousResultStatusRef.current = next;
+  }, [result, toast]);
 
   // ── Poll running pipeline steps ───────────────────────────────────
   const pollingStep = steps.find((s) => s.result && (s.result.status === "pending" || s.result.status === "running")) ?? null;
@@ -304,6 +460,7 @@ export function GeneratePage() {
   // ── Helpers ───────────────────────────────────────────────────────
   function updateForm(next: GenerateImageRequest | ((cur: GenerateImageRequest) => GenerateImageRequest)) {
     setSaveFeedback("idle");
+    setValidationMessages([]);
     setForm(next);
   }
 
@@ -323,34 +480,67 @@ export function GeneratePage() {
   }
 
   // ── Actions ───────────────────────────────────────────────────────
+  function validateGenerationForm(payload: GenerateImageRequest): Array<{ target: ValidationTarget; message: string }> {
+    const issues: Array<{ target: ValidationTarget; message: string }> = [];
+    if (!payload.model_path.trim()) issues.push({ target: "model", message: "Model path is required." });
+    if (payload.architecture === "chroma" && !payload.chroma_pipeline_repo.trim()) {
+      issues.push({ target: "model", message: "Chroma pipeline repo is required for Chroma runs." });
+    }
+    if (payload.loras.some((lora) => !lora.path.trim())) {
+      issues.push({ target: "model", message: "Every LoRA entry needs a path or should be removed." });
+    }
+    if (!payload.positive_prompt.trim()) issues.push({ target: "prompts", message: "Positive prompt is required." });
+    if (payload.steps < 1) issues.push({ target: "parameters", message: "Steps must be at least 1." });
+    if (payload.cfg_scale < 1) issues.push({ target: "parameters", message: "CFG must be at least 1." });
+    if (payload.batch_count < 1 || payload.batch_count > 16) issues.push({ target: "parameters", message: "Batch must be between 1 and 16." });
+    if (payload.width < 64 || payload.height < 64) issues.push({ target: "canvas", message: "Width and height must be at least 64." });
+    return issues;
+  }
+
+  function buildRequestFromRun(run: RecentRunRecord): GenerateImageRequest {
+    return run.request;
+  }
+
+  function useRunSettings(run: RecentRunRecord) {
+    updateForm(run.request);
+    setCanvasPreset(detectCanvasPreset(run.request.width, run.request.height));
+    toast.info(`Loaded settings from run ${run.generation_id.slice(0, 8)}.`);
+  }
+
+  async function rerunRecentRun(run: RecentRunRecord) {
+    useRunSettings(run);
+    clearResult();
+    setSteps((cur) => cur.map((step) => ({ ...step, result: null, error: null, is_running: false })));
+    const response = await submitGeneration(buildRequestFromRun(run));
+    if (response) {
+      pushPromptHistory(run.request.positive_prompt);
+      setPromptHistory(loadPromptHistory());
+    }
+  }
+
   async function handleGenerate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const issues = validateGenerationForm(form);
+    setValidationMessages(issues);
+    if (issues.length > 0) {
+      const firstIssue = issues[0];
+      if (firstIssue.target !== "general") setActiveSettingsTab(firstIssue.target);
+      setError(firstIssue.message);
+      toast.error(firstIssue.message);
+      return;
+    }
     const hasActiveGeneration = result != null && (result.status === "pending" || result.status === "running");
-    setIsSubmittingGeneration(true);
-    setError(null);
     if (!hasActiveGeneration) {
-      setResult(null);
+      clearResult();
       setSteps((cur) => cur.map((s) => ({ ...s, result: null, error: null, is_running: false })));
     }
-    try {
-      pushPromptHistory(form.positive_prompt);
-      setPromptHistory(loadPromptHistory());
-      const response = await api.generateImage(form);
-      setResult(response);
-      setCurrentGenerationId(response.generation_id);
-      const [worker, queue] = await Promise.all([
-        api.getGenerateWorkerStatus(),
-        api.getGenerateQueueStatus(),
-      ]);
-      setWorkerStatus(worker);
-      setQueueStatus(queue);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Generation failed. Check the model path and backend logs.";
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setIsSubmittingGeneration(false);
+    pushPromptHistory(form.positive_prompt);
+    setPromptHistory(loadPromptHistory());
+    const response = await submitGeneration(form);
+    if (!response) {
+      return;
     }
+    submittedPayloadsRef.current[response.generation_id] = structuredClone(form);
   }
 
   async function handleLoadConfig(id: number) {
@@ -377,9 +567,9 @@ export function GeneratePage() {
       height: config.height,
       seed: config.seed,
       batch_count: cur.batch_count,
-      sampler: cur.sampler,
+      sampler: config.sampler ?? cur.sampler,
       architecture: config.architecture ?? "sdxl",
-      chroma_pipeline_repo: cur.chroma_pipeline_repo,
+      chroma_pipeline_repo: config.chroma_pipeline_repo ?? cur.chroma_pipeline_repo,
     }));
     setConfigName(config.name);
     setCanvasPreset(detectCanvasPreset(config.width, config.height));
@@ -391,6 +581,7 @@ export function GeneratePage() {
     setCanvasPreset(detectCanvasPreset(payload.width, payload.height));
     setSaveFeedback("idle");
     setError(null);
+    setValidationMessages([]);
   }
 
   async function handleSaveConfig() {
@@ -447,20 +638,8 @@ export function GeneratePage() {
   }
 
   async function performUnload(trainingJob?: Job | null) {
-    setIsUnloading(true);
-    try {
-      if (trainingJob) {
-        await api.cancelJob(trainingJob.id);
-      }
-      await api.unloadGenerateWorkers();
-      setWorkerStatus(await api.getGenerateWorkerStatus());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to unload models.");
-    } finally {
-      setIsUnloading(false);
-      setTrainingJobToConfirm(null);
-    }
+    await handleUnloadWorker(trainingJob);
+    setTrainingJobToConfirm(null);
   }
 
   async function handleUnloadClick() {
@@ -478,11 +657,30 @@ export function GeneratePage() {
   }
 
   async function handleRemoveLatestQueuedGeneration() {
+    await cancelLatest();
+  }
+
+  async function handleWarmup() {
+    if (!form.model_path.trim()) { toast.error("Set a model path before warming up."); return; }
     try {
-      await api.removeLatestQueuedGeneration();
-      setQueueStatus(await api.getGenerateQueueStatus());
+      await api.warmupGenerateWorker({
+        architecture: form.architecture,
+        model_path: form.model_path,
+        chroma_pipeline_repo: form.chroma_pipeline_repo,
+        loras: form.loras,
+      });
+      toast.info("Warming up — model loading in background.");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to remove queued generation.");
+      toast.error(e instanceof ApiError ? e.message : "Warmup failed.");
+    }
+  }
+
+  async function handlePinConfig(configId: number, pinned: boolean) {
+    try {
+      await api.pinGenerateConfig(configId, pinned);
+      setSavedConfigs(await api.getGenerateConfigs());
+    } catch (e) {
+      console.error(e);
     }
   }
 
@@ -541,10 +739,10 @@ export function GeneratePage() {
         </button>
         <button
           type="button"
-          className="generate-tab-pill disabled"
-          disabled
+          className={`generate-tab-pill${mode === "video" ? " active" : ""}`}
+          onClick={() => setMode("video")}
         >
-          Coming Soon
+          Video
         </button>
       </div>
 
@@ -555,234 +753,361 @@ export function GeneratePage() {
           initialRefUrls={imageEditInitialRefs}
           onRefUrlsConsumed={() => setImageEditInitialRefs(null)}
         />
+      ) : mode === "video" ? (
+        <VideoPanel />
       ) : (
     <div className="split-page generate-page">
       {/* Left rail */}
       <div className="generate-rail">
         <form ref={t2iFormRef} className="generate-rail-form" onSubmit={handleGenerate}>
-          <label>
-            <span>Model Architecture</span>
-            <select
-              value={form.architecture}
-              onChange={(e) => {
-                const arch = e.target.value;
-                updateForm((cur) => ({
-                  ...cur,
-                  architecture: arch,
-                  cfg_scale: arch === "chroma" ? 3.0 : cur.cfg_scale === 3.0 ? 7.0 : cur.cfg_scale,
-                }));
-              }}
-            >
-              <option value="sdxl">SDXL</option>
-              <option value="chroma">Chroma</option>
-            </select>
-          </label>
-
-          <ConfigSaveRow
-            name={configName}
-            onNameChange={(n) => { setConfigName(n); setSaveFeedback("idle"); }}
-            onSave={() => void handleSaveConfig()}
-            isSaving={isSavingConfig}
-            configs={savedConfigs}
-            onLoad={(id) => void handleLoadConfig(id)}
-            feedback={saveFeedback}
-            namePlaceholder="My Portrait Setup"
-          />
-
-          {workerStatus ? (
-            <WorkerStatusCard
-              status={workerStatus}
-              architecture={form.architecture}
-              queueStatus={queueStatus}
-              isUnloading={isUnloading}
-              onUnload={() => void handleUnloadClick()}
-              onRemoveQueued={() => void handleRemoveLatestQueuedGeneration()}
-            />
-          ) : null}
-
-          <CollapsibleSection title={form.architecture === "chroma" ? "Model" : "Model & LoRAs"}>
-            <label>
-              <span>{form.architecture === "chroma" ? "Transformer Checkpoint" : "Model Path"}</span>
-              <PathCombobox
-                value={form.model_path}
-                root={modelRoot}
-                files={modelFiles}
-                onChange={(p) => updateForm({ ...form, model_path: p })}
-                placeholder={form.architecture === "chroma" ? "/path/to/chroma.safetensors" : "/path/to/model.safetensors"}
-                noFilesPlaceholder="No model root configured"
-              />
-            </label>
-            {form.architecture !== "chroma" ? (
-              <LoraStack
-                loras={form.loras}
-                onChange={(loras) => updateForm({ ...form, loras })}
-              />
-            ) : null}
-          </CollapsibleSection>
-
-          <CollapsibleSection title="Canvas">
-            <label>
-              <span>Preset</span>
-              <select value={canvasPreset} onChange={(e) => handleCanvasPresetChange(e.target.value)}>
-                {CANVAS_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
-                ))}
-              </select>
-            </label>
-            <div className="canvas-dimension-row">
-              <label className="canvas-dimension-label">
-                <span>Width</span>
-                <input type="number" min={64} step={8} value={form.width} disabled={canvasPreset !== "manual"}
-                  onChange={(e) => updateForm({ ...form, width: Number(e.target.value) })} />
-              </label>
-              <button
-                type="button"
-                className="dimension-swap-btn"
-                title="Swap width and height"
-                onClick={() => {
-                  setCanvasPreset("manual");
-                  updateForm((cur) => ({ ...cur, width: cur.height, height: cur.width }));
-                }}
-              >⇄</button>
-              <label className="canvas-dimension-label">
-                <span>Height</span>
-                <input type="number" min={64} step={8} value={form.height} disabled={canvasPreset !== "manual"}
-                  onChange={(e) => updateForm({ ...form, height: Number(e.target.value) })} />
-              </label>
+          <section className="section-card generate-settings-card">
+            <div className="generate-settings-header-row">
+              <span className="generate-settings-title">Text2Image</span>
+              <div className="arch-toggle">
+                <button
+                  type="button"
+                  className={`arch-btn${form.architecture === "sdxl" ? " active" : ""}`}
+                  onClick={() => updateForm((cur) => ({ ...cur, architecture: "sdxl", cfg_scale: cur.cfg_scale === 3.0 ? 7.0 : cur.cfg_scale }))}
+                >SDXL</button>
+                <button
+                  type="button"
+                  className={`arch-btn${form.architecture === "chroma" ? " active" : ""}`}
+                  onClick={() => updateForm((cur) => ({ ...cur, architecture: "chroma", cfg_scale: 3.0 }))}
+                >Chroma</button>
+              </div>
             </div>
-            <p className="panel-muted">
-              Output: {adjustedWidth} × {adjustedHeight}
-              {isRounded ? " (rounded to ×64)" : ""}
-            </p>
-          </CollapsibleSection>
 
-          <CollapsibleSection title="Parameters">
-            <div className="generate-grid">
-              <label>
-                <span>Steps</span>
-                <input type="number" min={1} value={form.steps}
-                  onChange={(e) => updateForm({ ...form, steps: Number(e.target.value) })} />
-              </label>
-              <label>
-                <span>CFG</span>
-                <input type="number" min={1} step="0.5" value={form.cfg_scale}
-                  onChange={(e) => updateForm({ ...form, cfg_scale: Number(e.target.value) })} />
-              </label>
-              <label>
-                <span>Batch</span>
-                <input type="number" min={1} max={16} value={form.batch_count}
-                  onChange={(e) => updateForm({ ...form, batch_count: Math.max(1, Math.min(16, Number(e.target.value))) })} />
-              </label>
-              <label className="generate-grid-span">
-                <span>Seed</span>
-                <input type="number" value={form.seed ?? ""} placeholder="random"
-                  onChange={(e) => updateForm({ ...form, seed: e.target.value === "" ? null : Number(e.target.value) })} />
-              </label>
-            </div>
-            {form.architecture !== "chroma" ? (
-              <label>
-                <span>Sampler</span>
-                <select value={form.sampler} onChange={(e) => updateForm({ ...form, sampler: e.target.value })}>
-                  {SAMPLER_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            <label>
-              <span>Caption Style</span>
-              <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value as "none" | "snapchat")}>
-                <option value="none">None</option>
-                <option value="snapchat">Snapchat</option>
-              </select>
-            </label>
-            {captionStyle === "snapchat" ? (
-              <>
-                <label>
-                  <span>Caption Text</span>
-                  <input
-                    value={captionText}
-                    onChange={(e) => setCaptionText(e.target.value)}
-                    placeholder="Enter caption..."
-                  />
-                </label>
-                <div className="caption-position-row">
-                  <span className="caption-position-label">Position</span>
-                  <input
-                    type="range"
-                    className="caption-position-slider"
-                    min={0}
-                    max={90}
-                    value={captionTop}
-                    onChange={(e) => setCaptionTop(Number(e.target.value))}
-                  />
-                  <span className="caption-position-value">{captionTop}%</span>
-                </div>
-                <div
-                  className="caption-preview"
-                  style={{ aspectRatio: `${adjustedWidth} / ${adjustedHeight}` }}
-                >
-                  <div
-                    className="caption-snapchat"
-                    style={{ top: `${captionTop}%` }}
+            <div className="generate-settings-shell">
+              {workerStatus ? (
+                <WorkerStatusCard
+                  status={workerStatus}
+                  architecture={form.architecture}
+                  queueStatus={queueStatus}
+                  isUnloading={isUnloading}
+                  onUnload={() => void handleUnloadClick()}
+                  onRemoveQueued={() => void handleRemoveLatestQueuedGeneration()}
+                  onWarmup={
+                    (form.architecture === "chroma" ? workerStatus.chroma_state : workerStatus.state) === "cold"
+                      ? () => void handleWarmup()
+                      : undefined
+                  }
+                />
+              ) : null}
+
+              <ConfigSaveRow
+                name={configName}
+                onNameChange={(n) => { setConfigName(n); setSaveFeedback("idle"); }}
+                onSave={() => void handleSaveConfig()}
+                isSaving={isSavingConfig}
+                configs={savedConfigs}
+                onLoad={(id) => void handleLoadConfig(id)}
+                onPin={(id, pinned) => void handlePinConfig(id, pinned)}
+                feedback={saveFeedback}
+                namePlaceholder="My Portrait Setup"
+              />
+
+              <div className="generate-settings-tabs" role="tablist" aria-label="Text2Image settings sections">
+                {SETTINGS_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeSettingsTab === tab.id}
+                    className={`generate-settings-tab${activeSettingsTab === tab.id ? " active" : ""}`}
+                    onClick={() => setActiveSettingsTab(tab.id)}
                   >
-                    {captionText || "Caption preview"}
-                  </div>
-                </div>
-              </>
-            ) : null}
-          </CollapsibleSection>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
 
-          <CollapsibleSection title="Prompts">
-            <div>
-              <div className="prompt-history-header">
-                <span>Positive Prompt</span>
-                {promptHistory.length > 0 ? (
-                  <div className="prompt-history-wrap">
+              {validationMessages.length > 0 ? (
+                <div className="generate-preflight-card">
+                  <div className="eyebrow">Preflight</div>
+                  {validationMessages.map((issue, index) => (
                     <button
+                      key={`${issue.target}-${index}`}
                       type="button"
-                      className="prompt-history-btn"
-                      title="Prompt history"
-                      onClick={() => setShowPromptHistory((v) => !v)}
-                    >⏱</button>
-                    {showPromptHistory ? (
-                      <div className="prompt-history-dropdown">
-                        {promptHistory.map((p, i) => (
+                      className="generate-preflight-item"
+                      onClick={() => issue.target !== "general" ? setActiveSettingsTab(issue.target) : undefined}
+                    >
+                      <span>{issue.message}</span>
+                      {issue.target !== "general" ? <strong>{issue.target}</strong> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="generate-settings-body">
+                {activeSettingsTab === "model" ? (
+                  <>
+                    <label>
+                      <span>{form.architecture === "chroma" ? "Transformer Checkpoint" : "Model Path"}</span>
+                      <PathCombobox
+                        value={form.model_path}
+                        root={modelRoot}
+                        files={modelFiles}
+                        onChange={(p) => updateForm({ ...form, model_path: p })}
+                        placeholder={form.architecture === "chroma" ? "/path/to/chroma.safetensors" : "/path/to/model.safetensors"}
+                        noFilesPlaceholder="No model root configured"
+                      />
+                    </label>
+                    {form.model_path ? (() => {
+                      const filename = form.model_path.split("/").pop() ?? "";
+                      const dot = filename.lastIndexOf(".");
+                      const stem = dot > 0 ? filename.slice(0, dot) : filename;
+                      return stem ? (
+                        <div className="path-stem-row">
+                          <span className="path-stem-label">{stem}</span>
                           <button
-                            key={i}
                             type="button"
-                            className="prompt-history-option"
-                            onClick={() => {
-                              updateForm({ ...form, positive_prompt: p });
-                              setShowPromptHistory(false);
-                            }}
-                          >{p}</button>
-                        ))}
+                            className="path-copy-btn"
+                            title="Copy full path"
+                            onClick={() => void navigator.clipboard.writeText(form.model_path)}
+                          >⧉</button>
+                        </div>
+                      ) : null;
+                    })() : null}
+                    <LoraStack
+                      loras={form.loras}
+                      onChange={(loras) => updateForm({ ...form, loras })}
+                    />
+                    {/* LoRA Presets */}
+                    <div className="lora-presets-section">
+                      <div className="section-inline-header">
+                        <span className="eyebrow no-margin">LoRA Presets</span>
                       </div>
+                      <div className="lora-presets-save-row">
+                        <input
+                          className="lora-preset-name-input"
+                          placeholder="Preset name…"
+                          value={loraPresetName}
+                          onChange={(e) => setLoraPresetName(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={!loraPresetName.trim() || form.loras.length === 0}
+                          onClick={() => {
+                            saveLoraPreset(loraPresetName, form.loras);
+                            setLoraPresets(loadLoraPresets());
+                            setLoraPresetName("");
+                          }}
+                        >Save</button>
+                      </div>
+                      {loraPresets.length > 0 ? (
+                        <div className="lora-presets-list">
+                          {loraPresets.map((preset) => (
+                            <div key={preset.id} className="lora-preset-row">
+                              <button
+                                type="button"
+                                className="lora-preset-load-btn"
+                                title={`${preset.loras.length} LoRA${preset.loras.length === 1 ? "" : "s"}`}
+                                onClick={() => updateForm({ ...form, loras: preset.loras })}
+                              >{preset.name}</button>
+                              <button
+                                type="button"
+                                className="lora-preset-delete-btn"
+                                title="Delete preset"
+                                onClick={() => { deleteLoraPreset(preset.id); setLoraPresets(loadLoraPresets()); }}
+                              >✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+
+                {activeSettingsTab === "canvas" ? (
+                  <>
+                    <label>
+                      <span>Preset</span>
+                      <select value={canvasPreset} onChange={(e) => handleCanvasPresetChange(e.target.value)}>
+                        {CANVAS_PRESETS.map((p) => (
+                          <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="canvas-dimension-row">
+                      <label className="canvas-dimension-label">
+                        <span>Width</span>
+                        <input type="number" min={64} step={8} value={form.width} disabled={canvasPreset !== "manual"}
+                          onChange={(e) => updateForm({ ...form, width: Number(e.target.value) })} />
+                      </label>
+                      <button
+                        type="button"
+                        className="dimension-swap-btn"
+                        title="Swap width and height"
+                        onClick={() => {
+                          setCanvasPreset("manual");
+                          updateForm((cur) => ({ ...cur, width: cur.height, height: cur.width }));
+                        }}
+                      >⇄</button>
+                      <label className="canvas-dimension-label">
+                        <span>Height</span>
+                        <input type="number" min={64} step={8} value={form.height} disabled={canvasPreset !== "manual"}
+                          onChange={(e) => updateForm({ ...form, height: Number(e.target.value) })} />
+                      </label>
+                    </div>
+                    <p className="panel-muted">
+                      Output: {adjustedWidth} × {adjustedHeight}
+                      {isRounded ? " (rounded to ×64)" : ""}
+                    </p>
+                  </>
+                ) : null}
+
+                {activeSettingsTab === "parameters" ? (
+                  <>
+                    <div className="generate-grid">
+                      <label>
+                        <span>Steps</span>
+                        <input type="number" min={1} value={form.steps}
+                          onChange={(e) => updateForm({ ...form, steps: Number(e.target.value) })} />
+                      </label>
+                      <label>
+                        <span>CFG</span>
+                        <input type="number" min={1} step="0.5" value={form.cfg_scale}
+                          onChange={(e) => updateForm({ ...form, cfg_scale: Number(e.target.value) })} />
+                      </label>
+                      <label>
+                        <span>Batch</span>
+                        <input type="number" min={1} max={16} value={form.batch_count}
+                          onChange={(e) => updateForm({ ...form, batch_count: Math.max(1, Math.min(16, Number(e.target.value))) })} />
+                      </label>
+                      <label className="generate-grid-span">
+                        <span>Seed</span>
+                        <input type="number" value={form.seed ?? ""} placeholder="random"
+                          onChange={(e) => updateForm({ ...form, seed: e.target.value === "" ? null : Number(e.target.value) })} />
+                      </label>
+                    </div>
+                    {form.architecture !== "chroma" ? (
+                      <label>
+                        <span>Sampler</span>
+                        <select value={form.sampler} onChange={(e) => updateForm({ ...form, sampler: e.target.value })}>
+                          {SAMPLER_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </label>
                     ) : null}
-                  </div>
+                    <label>
+                      <span>Caption Style</span>
+                      <select value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value as "none" | "snapchat")}>
+                        <option value="none">None</option>
+                        <option value="snapchat">Snapchat</option>
+                      </select>
+                    </label>
+                    {captionStyle === "snapchat" ? (
+                      <>
+                        <label>
+                          <span>Caption Text</span>
+                          <input
+                            value={captionText}
+                            onChange={(e) => setCaptionText(e.target.value)}
+                            placeholder="Enter caption..."
+                          />
+                        </label>
+                        <div className="caption-position-row">
+                          <span className="caption-position-label">Position</span>
+                          <input
+                            type="range"
+                            className="caption-position-slider"
+                            min={0}
+                            max={90}
+                            value={captionTop}
+                            onChange={(e) => setCaptionTop(Number(e.target.value))}
+                          />
+                          <span className="caption-position-value">{captionTop}%</span>
+                        </div>
+                        <div
+                          className="caption-preview"
+                          style={{ aspectRatio: `${adjustedWidth} / ${adjustedHeight}` }}
+                        >
+                          <div
+                            className="caption-snapchat"
+                            style={{ top: `${captionTop}%` }}
+                          >
+                            {captionText || "Caption preview"}
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {activeSettingsTab === "prompts" ? (
+                  <>
+                    <div>
+                      <div className="prompt-history-header">
+                        <span>Positive Prompt</span>
+                        {promptHistory.length > 0 ? (
+                          <div className="prompt-history-wrap">
+                            <button
+                              type="button"
+                              className="prompt-history-btn"
+                              title="Prompt history"
+                              onClick={() => setShowPromptHistory((v) => !v)}
+                            >⏱</button>
+                            {showPromptHistory ? (
+                              <div className="prompt-history-dropdown">
+                                {promptHistory.map((p, i) => (
+                                  <div key={i} className="prompt-history-row">
+                                    <button
+                                      type="button"
+                                      className="prompt-history-option"
+                                      onClick={() => {
+                                        updateForm({ ...form, positive_prompt: p });
+                                        setShowPromptHistory(false);
+                                      }}
+                                    >{p}</button>
+                                    <button
+                                      type="button"
+                                      className="prompt-history-delete"
+                                      title="Remove from history"
+                                      onClick={() => {
+                                        deletePromptHistoryItem(p);
+                                        setPromptHistory(loadPromptHistory());
+                                      }}
+                                    >✕</button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      <textarea rows={6} value={form.positive_prompt} placeholder="Describe what you want to generate..."
+                        onChange={(e) => updateForm({ ...form, positive_prompt: e.target.value })} />
+                    </div>
+                    <div className="section-inline-header">
+                      <label className="modal-toggle-row">
+                        <span className="modal-label" style={{ marginBottom: 0 }}>Prompt Enhance</span>
+                        <input type="checkbox" checked={form.prompt_enhance}
+                          onChange={(e) => updateForm((cur) => ({ ...cur, prompt_enhance: e.target.checked }))} />
+                      </label>
+                      <button className="secondary-button icon-button" type="button" title="Prompt enhance settings"
+                        onClick={() => setShowPromptSettings(true)}>⚙</button>
+                    </div>
+                    <label>
+                      <span>Negative Prompt</span>
+                      <textarea rows={4} value={form.negative_prompt} placeholder="Things to avoid..."
+                        onChange={(e) => updateForm({ ...form, negative_prompt: e.target.value })} />
+                    </label>
+                  </>
                 ) : null}
               </div>
-              <textarea rows={6} value={form.positive_prompt} placeholder="Describe what you want to generate..."
-                onChange={(e) => updateForm({ ...form, positive_prompt: e.target.value })} />
             </div>
-            <div className="section-inline-header">
-              <label className="modal-toggle-row">
-                <span className="modal-label" style={{ marginBottom: 0 }}>Prompt Enhance</span>
-                <input type="checkbox" checked={form.prompt_enhance}
-                  onChange={(e) => updateForm((cur) => ({ ...cur, prompt_enhance: e.target.checked }))} />
-              </label>
-              <button className="secondary-button icon-button" type="button" title="Prompt enhance settings"
-                onClick={() => setShowPromptSettings(true)}>⚙</button>
-            </div>
-            <label>
-              <span>Negative Prompt</span>
-              <textarea rows={4} value={form.negative_prompt} placeholder="Things to avoid..."
-                onChange={(e) => updateForm({ ...form, negative_prompt: e.target.value })} />
-            </label>
-          </CollapsibleSection>
+          </section>
 
           {error ? <div className="error-banner">{error}</div> : null}
+
+          <div className="generate-shortcuts">
+            <span><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> generate</span>
+            <span><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd> save config</span>
+            <span><kbd>Alt</kbd> + <kbd>1-4</kbd> switch tabs</span>
+            <span><kbd>Alt</kbd> + <kbd>R</kbd> rerun latest</span>
+          </div>
 
           <button className="primary-button" type="submit">
             {isSubmittingGeneration ? "Queueing..." : isGenerating ? "Generate Again" : "Generate"}
@@ -841,6 +1166,8 @@ export function GeneratePage() {
             </div>
           </div>
           <GalleryViewer
+            viewportClassName="generate-gallery-viewport"
+            refreshTrigger={galleryRefreshKey}
             onSendToImageEdit={(url) => {
               setMode("image-edit");
               setImageEditInitialRefs([url]);
@@ -889,4 +1216,3 @@ export function GeneratePage() {
     </div>
   );
 }
-

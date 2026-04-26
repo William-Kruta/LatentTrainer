@@ -174,6 +174,74 @@ function NamePromptModal({ defaultName, onConfirm, onCancel }: {
   );
 }
 
+// ── Rename modal ──────────────────────────────────────────────────────────────
+
+function RenameModal({
+  imageCount,
+  onConfirm,
+  onCancel,
+}: {
+  imageCount: number;
+  onConfirm: (prefix: string) => void;
+  onCancel: () => void;
+}) {
+  const [prefix, setPrefix] = useState("img_");
+  const invalid = !prefix.trim() || /[/\\:*?"<>|]/.test(prefix.trim());
+
+  const preview = prefix.trim()
+    ? [`${prefix.trim()}1.png`, `${prefix.trim()}2.png`, imageCount > 2 ? `…` : null, imageCount > 1 ? `${prefix.trim()}${imageCount}.png` : null]
+        .filter(Boolean)
+    : [];
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!invalid) onConfirm(prefix.trim());
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="eyebrow">Rename Files</span>
+          <h3>Choose a prefix</h3>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-field">
+            <label className="modal-label">Prefix</label>
+            <input
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              placeholder="img_"
+            />
+            <span className="modal-hint">
+              Images and their caption files will be renamed together.
+              Numbers start at 1 and increment.
+            </span>
+          </div>
+          {preview.length > 0 && (
+            <div className="rename-preview">
+              {preview.map((name, i) => (
+                <code key={i} className="rename-preview-name">{name}</code>
+              ))}
+            </div>
+          )}
+          {invalid && prefix.trim() && (
+            <div className="rename-error">Prefix contains invalid characters.</div>
+          )}
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onCancel}>Cancel</button>
+            <button className="primary-button" type="submit" disabled={invalid}>
+              Rename {imageCount} file{imageCount === 1 ? "" : "s"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Caption cell ──────────────────────────────────────────────────────────────
 
 function CaptionCell({ datasetId, file, overrideCaption }: { datasetId: number; file: DatasetFile; overrideCaption: string | undefined }) {
@@ -232,6 +300,8 @@ export function DatasetsPage() {
   const [captioning, setCaptioning] = useState(false);
   const [captionProgress, setCaptionProgress] = useState("");
   const [captionError, setCaptionError] = useState<string | null>(null);
+
+  const [showRename, setShowRename] = useState(false);
 
   // Upload state
   const [uploadStatus, setUploadStatus] = useState<{ msg: string; type: "idle" | "busy" | "ok" | "error" }>({ msg: "", type: "idle" });
@@ -485,6 +555,25 @@ export function DatasetsPage() {
     }
   }
 
+  // ── Rename dataset files ──────────────────────────────────────────────────
+
+  async function handleRename(prefix: string) {
+    if (!selectedDataset) return;
+    setShowRename(false);
+    setUploadStatus({ msg: `Renaming ${selectedDataset.image_count} files…`, type: "busy" });
+    try {
+      const detail = await api.renameDatasetFiles(selectedDataset.id, prefix);
+      setSelectedDataset(detail);
+      setSelectedFile(detail.files[0] ?? null);
+      setCaptionOverrides({});
+      setUploadStatus({ msg: `Renamed to ${prefix}1…${prefix}${detail.image_count}.`, type: "ok" });
+      setTimeout(() => setUploadStatus({ msg: "", type: "idle" }), 3000);
+      await loadDatasets(selectedDataset.id);
+    } catch (err) {
+      setUploadStatus({ msg: `Rename failed: ${err instanceof Error ? err.message : "unknown error"}`, type: "error" });
+    }
+  }
+
   // ── Delete dataset ────────────────────────────────────────────────────────
 
   async function handleDelete() {
@@ -510,6 +599,7 @@ export function DatasetsPage() {
         {captioning ? captionProgress : "Auto Caption"}
       </button>
       <button className="secondary-button icon-button" type="button" title="Caption settings" onClick={() => setShowSettings(true)}>⚙</button>
+      <button className="secondary-button" type="button" onClick={() => setShowRename(true)} disabled={selectedDataset.image_count === 0}>Rename</button>
       <button className="danger-button" type="button" onClick={handleDelete}>Delete</button>
     </>
   ) : undefined;
@@ -517,6 +607,13 @@ export function DatasetsPage() {
   return (
     <>
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showRename && selectedDataset && (
+        <RenameModal
+          imageCount={selectedDataset.image_count}
+          onConfirm={handleRename}
+          onCancel={() => setShowRename(false)}
+        />
+      )}
       {showNamePrompt && (
         <NamePromptModal
           defaultName={pendingDefaultName}
@@ -561,6 +658,9 @@ export function DatasetsPage() {
               <button key={dataset.id} className={`list-item ${selectedDataset?.id === dataset.id ? "active" : ""}`} onClick={() => selectDataset(dataset.id)} type="button">
                 <strong>{dataset.name}</strong>
                 <span>{dataset.image_count} images · {formatBytes(dataset.size_bytes)}</span>
+                <span className={`dataset-caption-badge ${dataset.caption_count === dataset.image_count && dataset.image_count > 0 ? "complete" : dataset.caption_count > 0 ? "partial" : "none"}`}>
+                  {dataset.caption_count}/{dataset.image_count} captioned
+                </span>
               </button>
             ))}
           </div>

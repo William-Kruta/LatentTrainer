@@ -7,6 +7,7 @@ interface WorkerStatusCardProps {
   isUnloading: boolean;
   onUnload: () => void;
   onRemoveQueued: () => void;
+  onWarmup?: () => void;
 }
 
 function WorkerRow({ label, state, modelPath, loraCount, idleRemaining, idleTimeout }: {
@@ -39,7 +40,7 @@ function WorkerRow({ label, state, modelPath, loraCount, idleRemaining, idleTime
   );
 }
 
-export function WorkerStatusCard({ status, architecture, queueStatus, isUnloading, onUnload, onRemoveQueued }: WorkerStatusCardProps) {
+export function WorkerStatusCard({ status, architecture, queueStatus, isUnloading, onUnload, onRemoveQueued, onWarmup }: WorkerStatusCardProps) {
   const queued = queueStatus?.queued_count ?? 0;
   const active = queueStatus?.active_generation_id != null;
 
@@ -64,6 +65,16 @@ export function WorkerStatusCard({ status, architecture, queueStatus, isUnloadin
             idleTimeout={status.idle_timeout_seconds}
           />
         )}
+        {onWarmup ? (
+          <button
+            className="worker-warmup-btn"
+            type="button"
+            onClick={onWarmup}
+            title="Load model into VRAM without generating"
+          >
+            Warm up
+          </button>
+        ) : null}
         <button
           className="worker-unload-btn"
           type="button"

@@ -47,6 +47,20 @@ def find_flux_pipeline() -> str:
     )
 
 
+def load_loras(pipe, loras: list[dict]) -> None:
+    if not loras:
+        return
+    emit({"type": "stage", "stage": "loading_loras"})
+    adapter_names = []
+    adapter_weights = []
+    for i, lora in enumerate(loras):
+        adapter_name = f"lora_{i}"
+        pipe.load_lora_weights(lora["path"], adapter_name=adapter_name)
+        adapter_names.append(adapter_name)
+        adapter_weights.append(float(lora.get("strength", 1.0)))
+    pipe.set_adapters(adapter_names, adapter_weights=adapter_weights)
+
+
 def load_runtime(args: argparse.Namespace):
     import torch
     from diffusers import ChromaPipeline, ChromaTransformer2DModel
@@ -97,6 +111,10 @@ def load_runtime(args: argparse.Namespace):
         pipe.enable_vae_slicing()
     except Exception:
         pass
+
+    loras = json.loads(args.loras) if args.loras else []
+    if loras:
+        load_loras(pipe, loras)
 
     return pipe
 
@@ -192,6 +210,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt_path", required=True, help="Path to Chroma transformer .safetensors")
     parser.add_argument("--pipeline_repo", default="", help="Local path to FLUX.1 pipeline (auto-detected if omitted)")
+    parser.add_argument("--loras", default="", help="JSON array of {path, strength} LoRA specs")
     args = parser.parse_args()
 
     try:

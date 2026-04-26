@@ -1,6 +1,7 @@
 interface ConfigOption {
   id: number;
   name: string;
+  pinned?: boolean;
 }
 
 interface ConfigSaveRowProps {
@@ -10,6 +11,7 @@ interface ConfigSaveRowProps {
   isSaving: boolean;
   configs: ConfigOption[];
   onLoad: (id: number) => void;
+  onPin?: (id: number, pinned: boolean) => void;
   feedback: "idle" | "saved" | "error";
   namePlaceholder?: string;
 }
@@ -21,48 +23,55 @@ export function ConfigSaveRow({
   isSaving,
   configs,
   onLoad,
+  onPin,
   feedback,
   namePlaceholder = "Config name",
 }: ConfigSaveRowProps) {
+  const matchedConfig = configs.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+
   return (
-    <div className="page-stack">
-      <div className="generate-config-row">
-        <label className="generate-config-name">
-          <span>Config Name</span>
-          <input
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            placeholder={namePlaceholder}
-          />
-        </label>
+    <div className="config-bar">
+      <div className="config-bar-save">
+        <input
+          className="config-bar-input"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder={namePlaceholder}
+        />
+        {matchedConfig && onPin ? (
+          <button
+            className={`config-pin-btn${matchedConfig.pinned ? " pinned" : ""}`}
+            type="button"
+            title={matchedConfig.pinned ? "Unpin config" : "Pin config to top"}
+            onClick={() => onPin(matchedConfig.id, !matchedConfig.pinned)}
+          >
+            📌
+          </button>
+        ) : null}
         <button
-          className="secondary-button"
+          className={`config-save-btn${feedback === "saved" ? " saved" : feedback === "error" ? " error" : ""}`}
           type="button"
           onClick={onSave}
           disabled={isSaving}
         >
-          {isSaving ? "Saving..." : "Save"}
+          {isSaving ? "…" : feedback === "saved" ? "✓" : "Save"}
         </button>
       </div>
-      <label>
-        <span>Load Config</span>
+      {configs.length > 0 ? (
         <select
-          defaultValue=""
+          className="config-load-select"
+          value=""
           onChange={(e) => {
             const id = Number(e.target.value);
             if (id) onLoad(id);
           }}
         >
-          <option value="">Select saved config</option>
+          <option value="">Load a config…</option>
           {configs.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
+            <option key={c.id} value={c.id}>{c.pinned ? "📌 " : ""}{c.name}</option>
           ))}
         </select>
-      </label>
-      {feedback === "saved" ? <div className="save-feedback success">Saved</div> : null}
-      {feedback === "error" ? <div className="save-feedback error">Save failed</div> : null}
+      ) : null}
     </div>
   );
 }

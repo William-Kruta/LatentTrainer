@@ -21,6 +21,7 @@ from app.models import (
     DatasetDetail,
     DatasetFile,
     DatasetRead,
+    RenameFilesRequest,
 )
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
@@ -51,6 +52,10 @@ def _refresh_counts(dataset: Dataset) -> None:
     images = [f for f in p.iterdir() if f.suffix.lower() in IMAGE_EXTENSIONS]
     dataset.image_count = len(images)
     dataset.size_bytes = sum(f.stat().st_size for f in p.iterdir())
+    dataset.caption_count = sum(
+        1 for img in images
+        if (img.with_suffix(".txt")).exists() and (img.with_suffix(".txt")).stat().st_size > 0
+    )
 
 
 def _read_files(dataset_path: Path) -> list[DatasetFile]:
@@ -69,7 +74,11 @@ def _read_files(dataset_path: Path) -> list[DatasetFile]:
 
 @router.get("", response_model=list[DatasetRead])
 def list_datasets(session: Session = Depends(get_session)) -> list[Dataset]:
-    return session.exec(select(Dataset).order_by(Dataset.name)).all()
+    datasets = list(session.exec(select(Dataset).order_by(Dataset.name)).all())
+    for dataset in datasets:
+        _refresh_counts(dataset)
+    session.commit()
+    return datasets
 
 
 @router.post("", response_model=DatasetRead, status_code=201)
@@ -226,6 +235,59 @@ def delete_dataset(dataset_id: int, session: Session = Depends(get_session)) -> 
     shutil.rmtree(dataset.path, ignore_errors=True)
     session.delete(dataset)
     session.commit()
+
+
+# ── Rename files ─────────────────────────────────────────────────────────────
+
+@router.post("/{dataset_id}/rename-files", response_model=DatasetDetail)
+def rename_files(
+    dataset_id: int,
+    payload: RenameFilesRequest,
+    session: Session = Depends(get_session),
+) -> DatasetDetail:
+    dataset = session.get(Dataset, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    prefix = payload.prefix.strip()
+    if not prefix:
+        raise HTTPException(status_code=400, detail="Prefix cannot be empty.")
+
+    dataset_path = Path(dataset.path)
+    images = sorted(f for f in dataset_path.iterdir() if f.suffix.lower() in IMAGE_EXTENSIONS)
+
+    if not images:
+        raise HTTPException(status_code=400, detail="No images to rename.")
+
+    # Phase 1 — rename all pairs to unique temp names so final targets never clash
+    temp_pairs: list[tuple[Path, Path | None, str]] = []
+    for i, img in enumerate(images):
+        txt = img.with_suffix(".txt")
+        temp_img = dataset_path / f"__rename_tmp_{i}{img.suffix}"
+        img.rename(temp_img)
+        temp_txt: Path | None = None
+        if txt.exists():
+            temp_txt = dataset_path / f"__rename_tmp_{i}.txt"
+            txt.rename(temp_txt)
+        temp_pairs.append((temp_img, temp_txt, img.suffix))
+
+    # Phase 2 — rename temp files to final names
+    for i, (temp_img, temp_txt, ext) in enumerate(temp_pairs, start=1):
+        temp_img.rename(dataset_path / f"{prefix}{i}{ext}")
+        if temp_txt is not None:
+            temp_txt.rename(dataset_path / f"{prefix}{i}.txt")
+
+    _refresh_counts(dataset)
+    session.add(dataset)
+    session.commit()
+    session.refresh(dataset)
+
+    files = _read_files(dataset_path)
+    return DatasetDetail(
+        **dataset.model_dump(exclude={"created_at"}),
+        created_at=dataset.created_at.astimezone(timezone.utc),
+        files=files,
+    )
 
 
 # ── Auto-caption ──────────────────────────────────────────────────────────────

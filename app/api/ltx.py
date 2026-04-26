@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlmodel import Session, SQLModel, select
 
@@ -58,6 +58,7 @@ def _run_job(
     config: LtxModelConfig,
     request: LtxGenerateRequest,
     output_path: Path,
+    input_image_path: Path | None = None,
 ) -> None:
     def on_event(event: dict[str, Any]) -> None:
         if event.get("type") == "stage":
@@ -98,6 +99,7 @@ def _run_job(
             cfg_scale=request.cfg_scale,
             stg_scale=request.stg_scale,
             seed=request.seed,
+            input_image_path=input_image_path,
             loras=request.loras or config.loras,
             on_event=on_event,
         )
@@ -112,9 +114,22 @@ def _run_job(
 
 @router.post("/generate")
 async def generate_video(
-    body: LtxGenerateRequest,
+    prompt: str = Form(...),
+    negative_prompt: str = Form(""),
+    width: int = Form(768),
+    height: int = Form(512),
+    num_frames: int = Form(121),
+    frame_rate: int = Form(24),
+    num_inference_steps: int = Form(30),
+    cfg_scale: float = Form(3.0),
+    stg_scale: float = Form(1.0),
+    seed: int = Form(42),
+    offload_mode: str = Form("cpu"),
+    loras_json: str = Form("[]"),
+    input_image: UploadFile | None = File(None),
     session: Session = Depends(get_session),
 ) -> dict:
+    import json as _json
     config = _get_ltx_config(session)
 
     if not config.ltx_install_path:
@@ -124,10 +139,37 @@ async def generate_video(
     if not config.text_encoder_repo_id:
         raise HTTPException(status_code=400, detail="Text encoder repo ID not configured.")
 
+    try:
+        loras = _json.loads(loras_json)
+    except Exception:
+        loras = []
+
+    body = LtxGenerateRequest(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        width=width,
+        height=height,
+        num_frames=num_frames,
+        frame_rate=frame_rate,
+        num_inference_steps=num_inference_steps,
+        cfg_scale=cfg_scale,
+        stg_scale=stg_scale,
+        seed=seed,
+        offload_mode=offload_mode,
+        loras=loras,
+    )
+
     job_id = str(uuid.uuid4())[:8]
     job_dir = LTX_OUTPUT_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
     output_path = job_dir / "output.mp4"
+
+    input_image_path: Path | None = None
+    if input_image is not None and input_image.filename:
+        suffix = Path(input_image.filename).suffix or ".png"
+        input_image_path = job_dir / f"input{suffix}"
+        content = await input_image.read()
+        input_image_path.write_bytes(content)
 
     with _jobs_lock:
         _jobs[job_id] = {
@@ -144,7 +186,7 @@ async def generate_video(
 
     threading.Thread(
         target=_run_job,
-        args=(job_id, config, body, output_path),
+        args=(job_id, config, body, output_path, input_image_path),
         daemon=True,
     ).start()
 

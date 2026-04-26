@@ -10,7 +10,7 @@ from sqlmodel import Session
 
 from app.api.datasets import IMAGE_EXTENSIONS, _refresh_counts
 from app.db import BASE_DIR, get_session
-from app.models import Dataset, GalleryDeleteRequest, GalleryImage, GalleryMoveRequest
+from app.models import Dataset, GalleryDeleteRequest, GalleryExportRequest, GalleryExportResponse, GalleryImage, GalleryMoveRequest
 
 router = APIRouter(prefix="/api/gallery", tags=["gallery"])
 
@@ -154,6 +154,38 @@ def delete_gallery_images(payload: GalleryDeleteRequest) -> None:
             caption_path = image_path.with_suffix(".txt")
             caption_path.unlink(missing_ok=True)
             _maybe_remove_empty_generation_dir(generation_dir)
+
+
+@router.post("/export", response_model=GalleryExportResponse)
+def export_gallery_images(payload: GalleryExportRequest) -> GalleryExportResponse:
+    destination = Path(payload.destination_dir).expanduser().resolve()
+    if not destination.exists():
+        try:
+            destination.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Cannot create destination directory: {exc}") from exc
+
+    exported = 0
+    for image_id in payload.image_ids:
+        parts = Path(image_id).parts
+        if len(parts) == 2 and parts[0].startswith(_LTX_PREFIX):
+            source_path = _resolve_gallery_video(image_id)
+        else:
+            source_path = _resolve_gallery_image(image_id)
+
+        dest_file = destination / source_path.name
+        if dest_file.exists():
+            stem = dest_file.stem
+            suffix = dest_file.suffix
+            counter = 1
+            while dest_file.exists():
+                dest_file = destination / f"{stem}_{counter}{suffix}"
+                counter += 1
+
+        shutil.copy2(str(source_path), str(dest_file))
+        exported += 1
+
+    return GalleryExportResponse(exported=exported, destination_dir=str(destination))
 
 
 @router.post("/move", status_code=204)

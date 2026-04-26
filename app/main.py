@@ -10,7 +10,8 @@ from sqlmodel import Session
 
 from app.api.configs import router as configs_router
 from app.api.datasets import router as datasets_router
-from app.api.generate import router as generate_router
+from app.api.generate import functions_router as generate_functions_router
+from app.api.generate import images_router as generate_images_router
 from app.api.gallery import router as gallery_router
 from app.api.image_edit import router as image_edit_router
 from app.api.ltx import router as ltx_router
@@ -32,7 +33,8 @@ app.add_middleware(
 
 app.include_router(configs_router)
 app.include_router(datasets_router)
-app.include_router(generate_router)
+app.include_router(generate_images_router)
+app.include_router(generate_functions_router)
 app.include_router(gallery_router)
 app.include_router(image_edit_router)
 app.include_router(ltx_router)

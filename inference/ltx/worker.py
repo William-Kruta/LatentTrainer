@@ -39,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cfg-scale", type=float, default=3.0)
     p.add_argument("--stg-scale", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--input-image", default="")
     # Each LoRA: "path;strength"
     p.add_argument("--lora", action="append", dest="loras", default=[])
     return p
@@ -115,6 +116,11 @@ def main() -> None:
     output_path = Path(args.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    input_images = []
+    if args.input_image:
+        from PIL import Image as PILImage
+        input_images = [PILImage.open(args.input_image).convert("RGB")]
+
     frame_iter, audio = pipeline(
         prompt=args.prompt,
         negative_prompt=args.negative_prompt,
@@ -126,7 +132,7 @@ def main() -> None:
         num_inference_steps=args.num_inference_steps,
         video_guider_params=video_guider,
         audio_guider_params=audio_guider,
-        images=[],
+        images=input_images,
     )
 
     emit({"type": "stage", "stage": "encoding_video"})

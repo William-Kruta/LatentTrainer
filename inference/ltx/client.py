@@ -80,6 +80,7 @@ class LtxWorkerClient:
         cfg_scale: float = 3.0,
         stg_scale: float = 1.0,
         seed: int = 42,
+        input_image_path: str | Path | None = None,
         loras: list[dict] | None = None,
         on_event: Callable[[dict], None] | None = None,
     ) -> Path:
@@ -99,6 +100,8 @@ class LtxWorkerClient:
             "--seed", str(seed),
             "--offload-mode", offload_mode,
         ]
+        if input_image_path:
+            args.extend(["--input-image", str(input_image_path)])
         if spatial_upsampler_path:
             args.extend(["--spatial-upsampler-path", spatial_upsampler_path])
         if distilled_lora_path:

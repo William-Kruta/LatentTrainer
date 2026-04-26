@@ -16,10 +16,10 @@ class Flux2WorkerClient:
         root_dir: str | Path | None = None,
         hf_repo: str = "black-forest-labs/FLUX.2-klein-9B",
     ) -> None:
-        self.root_dir = Path(root_dir or Path(__file__).resolve().parent.parent)
+        self.root_dir = Path(root_dir or Path(__file__).resolve().parent.parent.parent)
         self.hf_repo = hf_repo
         self.python_path = self.root_dir / ".venv-flux" / "bin" / "python"
-        self.worker_script = self.root_dir / "fk9_scripts" / "flux2_worker.py"
+        self.worker_script = self.root_dir / "inference" / "flux" / "worker.py"
 
     def _run(self, args: list[str], on_event: Callable[[dict], None] | None = None) -> dict:
         if not self.python_path.exists():

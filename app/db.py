@@ -34,6 +34,13 @@ def _run_schema_migrations() -> None:
                     )
                 )
 
+        if "dataset" in tables:
+            columns = {column["name"] for column in inspector.get_columns("dataset")}
+            if "caption_count" not in columns:
+                connection.execute(
+                    text("ALTER TABLE dataset ADD COLUMN caption_count INTEGER NOT NULL DEFAULT 0")
+                )
+
         if "generateconfig" in tables:
             columns = {column["name"] for column in inspector.get_columns("generateconfig")}
             if "architecture" not in columns:
@@ -41,6 +48,13 @@ def _run_schema_migrations() -> None:
                     text(
                         "ALTER TABLE generateconfig "
                         "ADD COLUMN architecture VARCHAR NOT NULL DEFAULT 'sdxl'"
+                    )
+                )
+            if "pinned" not in columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE generateconfig "
+                        "ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0"
                     )
                 )
 

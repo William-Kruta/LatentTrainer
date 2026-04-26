@@ -10,6 +10,7 @@ wheels/
 .venv
 
 
+
 # Dataspecific Directories
 data/ 
 datasets/
@@ -21,3 +22,7 @@ uploads/
 # LLM 
 .codex 
 .claude
+
+docs
+.superpowers
+markdown
