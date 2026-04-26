@@ -34,7 +34,15 @@ class PersistentChromaWorker:
             (str(Path(l.path).expanduser().resolve()), l.strength)
             for l in payload.loras
         )
-        return ckpt_path, payload.chroma_pipeline_repo, loras_key
+        return (
+            ckpt_path,
+            payload.chroma_pipeline_repo,
+            loras_key,
+            payload.cpu_offload,
+            payload.sequential_cpu_offload,
+            payload.vae_tiling,
+            payload.vae_slicing,
+        )
 
     def status(self) -> dict:
         with self._lock:
@@ -88,6 +96,14 @@ class PersistentChromaWorker:
                 for l in payload.loras
             ])
             command += ["--loras", loras_json]
+        if payload.cpu_offload:
+            command += ["--cpu_offload"]
+        if payload.sequential_cpu_offload:
+            command += ["--sequential_cpu_offload"]
+        if payload.vae_tiling:
+            command += ["--vae_tiling"]
+        if payload.vae_slicing:
+            command += ["--vae_slicing"]
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
