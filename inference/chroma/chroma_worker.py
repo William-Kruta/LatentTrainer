@@ -97,11 +97,18 @@ def load_runtime(args: argparse.Namespace):
         local_files_only=True,
     )
 
-    try:
-        pipe.enable_model_cpu_offload()
-    except Exception:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        pipe.to(device)
+    if args.sequential_cpu_offload:
+        try:
+            pipe.enable_sequential_cpu_offload()
+        except Exception:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            pipe.to(device)
+    else:
+        try:
+            pipe.enable_model_cpu_offload()
+        except Exception:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            pipe.to(device)
 
     try:
         pipe.enable_vae_tiling()
@@ -211,6 +218,10 @@ def main() -> None:
     parser.add_argument("--ckpt_path", required=True, help="Path to Chroma transformer .safetensors")
     parser.add_argument("--pipeline_repo", default="", help="Local path to FLUX.1 pipeline (auto-detected if omitted)")
     parser.add_argument("--loras", default="", help="JSON array of {path, strength} LoRA specs")
+    parser.add_argument("--cpu_offload", action="store_true", default=False)
+    parser.add_argument("--sequential_cpu_offload", action="store_true", default=False)
+    parser.add_argument("--vae_tiling", action="store_true", default=False)
+    parser.add_argument("--vae_slicing", action="store_true", default=False)
     args = parser.parse_args()
 
     try:
