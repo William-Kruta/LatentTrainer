@@ -26,6 +26,18 @@ export interface GenerateImageRequest {
   seed: number | null;
   batch_count: number;
   sampler: string;
+  controlnet_mode?: boolean;
+  controlnet_conditioning_scale?: number;
+  controlnet_preprocess?: "none" | "canny";
+  cpu_offload: boolean;
+  sequential_cpu_offload: boolean;
+  vae_tiling: boolean;
+  vae_slicing: boolean;
+}
+
+export interface ControlNetConfig {
+  model_path: string;
+  conditioning_scale: number;
 }
 
 export interface GenerateImageResponse {
@@ -64,6 +76,12 @@ export interface WarmupRequest {
   model_path: string;
   chroma_pipeline_repo: string;
   loras: GenerateLoraSpec[];
+  controlnet_mode?: boolean;
+  controlnet_path?: string;
+  cpu_offload?: boolean;
+  sequential_cpu_offload?: boolean;
+  vae_tiling?: boolean;
+  vae_slicing?: boolean;
 }
 
 export interface GenerateConfig extends GenerateImageRequest {
@@ -82,6 +100,9 @@ export interface GenerateWorkerStatus {
   chroma_state: "warm" | "cold";
   chroma_model_path: string | null;
   chroma_idle_seconds_remaining: number | null;
+  controlnet_state: "warm" | "cold";
+  controlnet_model_path: string | null;
+  controlnet_idle_seconds_remaining: number | null;
 }
 
 export interface GenerateQueueStatus {
@@ -197,6 +218,15 @@ export async function formPost<T>(path: string, formData: FormData, init?: Omit<
 export const generateApi = {
   generateImage: (body: GenerateImageRequest) =>
     request<GenerateImageResponse>("/api/generate", { method: "POST", body: JSON.stringify(body) }),
+  generateControlNet: (body: GenerateImageRequest, controlImage?: File | null) => {
+    const form = new FormData();
+    form.set("payload_json", JSON.stringify(body));
+    if (controlImage) form.set("control_image", controlImage, controlImage.name);
+    return formPost<GenerateImageResponse>("/api/generate/controlnet", form);
+  },
+  getControlNetConfig: () => request<ControlNetConfig>("/api/settings/controlnet"),
+  updateControlNetConfig: (body: ControlNetConfig) =>
+    request<ControlNetConfig>("/api/settings/controlnet", { method: "PUT", body: JSON.stringify(body) }),
   getGeneration: (generationId: string) => request<GenerateImageResponse>(`/api/generate/${generationId}`),
   getGenerateConfigs: () => request<GenerateConfigSummary[]>("/api/generate/configs"),
   getGenerateConfig: (configId: number) => request<GenerateConfig>(`/api/generate/configs/${configId}`),
