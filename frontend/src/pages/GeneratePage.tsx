@@ -147,6 +147,10 @@ const initialForm: GenerateImageRequest = {
   seed: null,
   batch_count: 1,
   sampler: "euler",
+  cpu_offload: false,
+  sequential_cpu_offload: false,
+  vae_tiling: false,
+  vae_slicing: false,
 };
 
 function roundToMultiple(value: number, multiple: number) {
@@ -570,6 +574,10 @@ export function GeneratePage() {
       sampler: config.sampler ?? cur.sampler,
       architecture: config.architecture ?? "sdxl",
       chroma_pipeline_repo: config.chroma_pipeline_repo ?? cur.chroma_pipeline_repo,
+      cpu_offload: config.cpu_offload ?? false,
+      sequential_cpu_offload: config.sequential_cpu_offload ?? false,
+      vae_tiling: config.vae_tiling ?? false,
+      vae_slicing: config.vae_slicing ?? false,
     }));
     setConfigName(config.name);
     setCanvasPreset(detectCanvasPreset(config.width, config.height));
@@ -668,6 +676,10 @@ export function GeneratePage() {
         model_path: form.model_path,
         chroma_pipeline_repo: form.chroma_pipeline_repo,
         loras: form.loras,
+        cpu_offload: form.cpu_offload,
+        sequential_cpu_offload: form.sequential_cpu_offload,
+        vae_tiling: form.vae_tiling,
+        vae_slicing: form.vae_slicing,
       });
       toast.info("Warming up — model loading in background.");
     } catch (e) {
@@ -915,6 +927,74 @@ export function GeneratePage() {
                           ))}
                         </div>
                       ) : null}
+                    </div>
+                    {/* Memory */}
+                    <div className="lora-presets-section">
+                      <div className="section-inline-header">
+                        <span className="eyebrow no-margin">Memory</span>
+                      </div>
+                      <div className="memory-options-list">
+                        <label className="modal-toggle-row">
+                          <span>
+                            CPU Offload
+                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
+                              {form.architecture === "chroma"
+                                ? "Already enabled by default"
+                                : "Keeps text encoders on CPU — saves ~2 GB VRAM"}
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={form.cpu_offload}
+                            onChange={(e) => updateForm({ ...form, cpu_offload: e.target.checked })}
+                          />
+                        </label>
+                        <label className="modal-toggle-row">
+                          <span>
+                            Sequential CPU Offload
+                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
+                              {form.architecture === "chroma"
+                                ? "Layer-by-layer offload — more savings, slower"
+                                : "Offloads all components per step — max savings, much slower"}
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={form.sequential_cpu_offload}
+                            onChange={(e) => updateForm({ ...form, sequential_cpu_offload: e.target.checked })}
+                          />
+                        </label>
+                        <label className="modal-toggle-row">
+                          <span>
+                            VAE Tiling
+                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
+                              {form.architecture === "chroma"
+                                ? "Already enabled by default"
+                                : "Tiles VAE decode to lower peak VRAM"}
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={form.vae_tiling}
+                            onChange={(e) => updateForm({ ...form, vae_tiling: e.target.checked })}
+                          />
+                        </label>
+                        <label className="modal-toggle-row">
+                          <span>
+                            VAE Slicing
+                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
+                              {form.architecture === "chroma"
+                                ? "Already enabled by default"
+                                : "Slices batch VAE decode — useful for batch count > 1"}
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={form.vae_slicing}
+                            onChange={(e) => updateForm({ ...form, vae_slicing: e.target.checked })}
+                          />
+                        </label>
+                      </div>
                     </div>
                   </>
                 ) : null}

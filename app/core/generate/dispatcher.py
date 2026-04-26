@@ -21,9 +21,10 @@ from app.core.generate.queue import (
     _serialize,
     _update_record,
 )
+from app.core.generate.controlnet_worker import PersistentControlNetWorker
 from app.core.generate.worker import PersistentGenerateWorker
 from app.db import BASE_DIR
-from app.models import GenerateImageRequest, GenerateImageResponse, GenerateWorkerStatus, GenerationStatus, WarmupRequest
+from app.models import ControlNetConfig, GenerateImageRequest, GenerateImageResponse, GenerateWorkerStatus, GenerationStatus, WarmupRequest
 from inference.chroma.client import PersistentChromaWorker
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ GENERATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 _worker = PersistentGenerateWorker()
 _chroma_worker = PersistentChromaWorker()
+_controlnet_worker = PersistentControlNetWorker()
 
 
 def _round_to_multiple(value: int, multiple: int = 64) -> int:
@@ -123,12 +125,19 @@ def warmup_worker(req: WarmupRequest) -> None:
         loras=req.loras,
         positive_prompt="warmup",
         steps=1,
+        controlnet_mode=req.controlnet_mode,
+        cpu_offload=req.cpu_offload,
+        sequential_cpu_offload=req.sequential_cpu_offload,
+        vae_tiling=req.vae_tiling,
+        vae_slicing=req.vae_slicing,
     )
 
     def _warmup_thread() -> None:
         if dummy.architecture == "chroma":
             with _worker._lock:
                 _worker._stop_locked()
+            with _controlnet_worker._lock:
+                _controlnet_worker._stop_locked()
             with _chroma_worker._lock:
                 sig = _chroma_worker._signature_for(dummy)
                 process_dead = _chroma_worker._process is None or _chroma_worker._process.poll() is not None
@@ -138,9 +147,25 @@ def warmup_worker(req: WarmupRequest) -> None:
                         _chroma_worker._start_locked(dummy)
                     except Exception:
                         logger.exception("Warmup failed for chroma worker")
+        elif dummy.controlnet_mode:
+            with _worker._lock:
+                _worker._stop_locked()
+            with _chroma_worker._lock:
+                _chroma_worker._stop_locked()
+            with _controlnet_worker._lock:
+                sig = _controlnet_worker._signature_for(dummy.model_path, req.controlnet_path, dummy.loras, dummy)
+                dead = _controlnet_worker._process is None or _controlnet_worker._process.poll() is not None
+                if dead or _controlnet_worker._signature != sig:
+                    _controlnet_worker._stop_locked()
+                    try:
+                        _controlnet_worker._start_locked(dummy, req.controlnet_path)
+                    except Exception:
+                        logger.exception("Warmup failed for controlnet worker")
         else:
             with _chroma_worker._lock:
                 _chroma_worker._stop_locked()
+            with _controlnet_worker._lock:
+                _controlnet_worker._stop_locked()
             with _worker._lock:
                 sig = _worker._signature_for(dummy)
                 process_dead = _worker._process is None or _worker._process.poll() is not None
@@ -179,6 +204,7 @@ def start_generation(payload: GenerateImageRequest) -> GenerateImageResponse:
 def get_worker_status() -> GenerateWorkerStatus:
     sdxl = _worker.status()
     chroma = _chroma_worker.status()
+    cn = _controlnet_worker.status()
     return GenerateWorkerStatus(
         state=sdxl.state,
         model_path=sdxl.model_path,
@@ -186,6 +212,7 @@ def get_worker_status() -> GenerateWorkerStatus:
         idle_timeout_seconds=sdxl.idle_timeout_seconds,
         idle_seconds_remaining=sdxl.idle_seconds_remaining,
         **chroma,
+        **cn,
     )
 
 
@@ -194,6 +221,8 @@ def stop_worker() -> None:
         _worker._stop_locked()
     with _chroma_worker._lock:
         _chroma_worker._stop_locked()
+    with _controlnet_worker._lock:
+        _controlnet_worker._stop_locked()
 
 
 def _run_generation(generation_id: str) -> None:
@@ -227,10 +256,39 @@ def _run_generation(generation_id: str) -> None:
         if payload.architecture == "chroma":
             with _worker._lock:
                 _worker._stop_locked()
+            with _controlnet_worker._lock:
+                _controlnet_worker._stop_locked()
             filenames = _chroma_worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress, on_stage=on_stage)
+        elif payload.controlnet_mode:
+            with _worker._lock:
+                _worker._stop_locked()
+            with _chroma_worker._lock:
+                _chroma_worker._stop_locked()
+            # Apply Canny preprocessing if requested (overwrites the control image path in-place)
+            if payload.controlnet_preprocess == "canny" and payload.control_image_path:
+                from PIL import Image as _PILImage  # noqa: PLC0415
+                from app.core.generate.preprocessors import preprocess as _preprocess  # noqa: PLC0415
+                raw = _PILImage.open(payload.control_image_path).convert("RGB")
+                processed = _preprocess(raw, "canny")
+                processed_path = payload.control_image_path.replace(".", "_canny.")
+                processed.save(processed_path)
+                payload = payload.model_copy(update={"control_image_path": processed_path})
+            # Look up the ControlNet model path from the stored config
+            from app.db import get_session as _get_session  # noqa: PLC0415
+            from app.models import ControlNetConfig as _ControlNetConfig  # noqa: PLC0415
+            from sqlmodel import select as _select  # noqa: PLC0415
+            with next(_get_session()) as _session:
+                _cn_config = _session.exec(_select(_ControlNetConfig)).first()
+                controlnet_path = _cn_config.model_path if _cn_config else ""
+            filenames = _controlnet_worker.run(
+                payload, controlnet_path, output_dir,
+                on_log=on_log, on_progress=on_progress, on_stage=on_stage,
+            )
         else:
             with _chroma_worker._lock:
                 _chroma_worker._stop_locked()
+            with _controlnet_worker._lock:
+                _controlnet_worker._stop_locked()
             filenames = _worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress, on_stage=on_stage)
     except Exception as exc:
         logger.exception("Generation failed for %s", generation_id)
