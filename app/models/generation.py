@@ -38,6 +38,14 @@ class GenerateImageRequest(SQLModel):
     seed: int | None = None
     batch_count: int = 1
     sampler: str = "euler"
+    controlnet_mode: bool = False
+    controlnet_conditioning_scale: float = 0.8
+    controlnet_preprocess: str = "none"
+    control_image_path: str = ""
+    cpu_offload: bool = False
+    sequential_cpu_offload: bool = False
+    vae_tiling: bool = False
+    vae_slicing: bool = False
 
 
 class GenerationStatus(str, Enum):
@@ -85,6 +93,10 @@ class GenerateConfigBase(SQLModel):
     width: int = 1024
     height: int = 1024
     seed: int | None = None
+    cpu_offload: bool = False
+    sequential_cpu_offload: bool = False
+    vae_tiling: bool = False
+    vae_slicing: bool = False
 
 
 class GenerateConfig(GenerateConfigBase, table=True):
@@ -108,6 +120,10 @@ class GenerateConfigCreate(SQLModel):
     width: int = 1024
     height: int = 1024
     seed: int | None = None
+    cpu_offload: bool = False
+    sequential_cpu_offload: bool = False
+    vae_tiling: bool = False
+    vae_slicing: bool = False
 
 
 class GenerateConfigSummary(SQLModel):
@@ -122,6 +138,18 @@ class WarmupRequest(SQLModel):
     model_path: str
     chroma_pipeline_repo: str = ""
     loras: list[GenerateLoraSpec] = Field(default_factory=list)
+    controlnet_mode: bool = False
+    controlnet_path: str = ""
+    cpu_offload: bool = False
+    sequential_cpu_offload: bool = False
+    vae_tiling: bool = False
+    vae_slicing: bool = False
+
+
+class ControlNetConfig(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    model_path: str = ""
+    conditioning_scale: float = 0.8
 
 
 class GenerateConfigRead(GenerateConfigCreate):
@@ -176,6 +204,9 @@ class GenerateWorkerStatus(SQLModel):
     chroma_state: str = "cold"
     chroma_model_path: str | None = None
     chroma_idle_seconds_remaining: int | None = None
+    controlnet_state: str = "cold"
+    controlnet_model_path: str | None = None
+    controlnet_idle_seconds_remaining: int | None = None
 
 
 class GenerateQueueStatus(SQLModel):
