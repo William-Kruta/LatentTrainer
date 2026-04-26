@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import AppSettings, AppSettingsRead, AppSettingsUpdate, LtxModelConfig, LtxModelConfigRead, LtxModelConfigUpdate
+from app.models import AppSettings, AppSettingsRead, AppSettingsUpdate, ControlNetConfig, LtxModelConfig, LtxModelConfigRead, LtxModelConfigUpdate
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -121,6 +121,38 @@ def update_ltx_config(
     session.commit()
     session.refresh(config)
     return config
+
+
+def _get_or_create_controlnet(session: Session) -> ControlNetConfig:
+    config = session.exec(select(ControlNetConfig)).first()
+    if config is None:
+        config = ControlNetConfig()
+        session.add(config)
+        session.commit()
+        session.refresh(config)
+    return config
+
+
+@router.get("/controlnet")
+def get_controlnet_config(session: Session = Depends(get_session)) -> dict:
+    config = _get_or_create_controlnet(session)
+    return {"model_path": config.model_path, "conditioning_scale": config.conditioning_scale}
+
+
+@router.put("/controlnet")
+def update_controlnet_config(
+    body: dict,
+    session: Session = Depends(get_session),
+) -> dict:
+    config = _get_or_create_controlnet(session)
+    if "model_path" in body:
+        config.model_path = str(body["model_path"])
+    if "conditioning_scale" in body:
+        config.conditioning_scale = float(body["conditioning_scale"])
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return {"model_path": config.model_path, "conditioning_scale": config.conditioning_scale}
 
 
 @router.get("/all")

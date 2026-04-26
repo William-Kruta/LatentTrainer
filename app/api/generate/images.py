@@ -5,7 +5,8 @@ import json
 from datetime import timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+import json as _json_mod
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import desc
@@ -46,6 +47,32 @@ router = APIRouter(prefix="/api/generate", tags=["generate"])
 
 @router.post("", response_model=GenerateImageResponse, status_code=202)
 def generate_image_route(payload: GenerateImageRequest) -> GenerateImageResponse:
+    return start_generation(payload)
+
+
+@router.post("/controlnet", response_model=GenerateImageResponse, status_code=202)
+async def generate_controlnet_route(
+    payload_json: str = Form(...),
+    control_image: UploadFile | None = File(None),
+) -> GenerateImageResponse:
+    try:
+        data = _json_mod.loads(payload_json)
+        payload = GenerateImageRequest.model_validate(data)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid payload: {exc}") from exc
+
+    payload.controlnet_mode = True
+
+    if control_image is not None and control_image.filename:
+        from app.core.generate.dispatcher import GENERATIONS_DIR  # noqa: PLC0415
+        import uuid as _uuid  # noqa: PLC0415
+        tmp_dir = GENERATIONS_DIR / f"_ctrl_{_uuid.uuid4().hex[:8]}"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(control_image.filename).suffix or ".png"
+        ctrl_path = tmp_dir / f"control{suffix}"
+        ctrl_path.write_bytes(await control_image.read())
+        payload.control_image_path = str(ctrl_path)
+
     return start_generation(payload)
 
 

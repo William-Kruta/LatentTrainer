@@ -98,26 +98,23 @@ def load_runtime(args: argparse.Namespace):
     )
 
     if args.sequential_cpu_offload:
-        try:
-            pipe.enable_sequential_cpu_offload()
-        except Exception:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            pipe.to(device)
+        pipe.enable_sequential_cpu_offload()
+    elif args.cpu_offload:
+        pipe.enable_model_cpu_offload()
     else:
-        try:
-            pipe.enable_model_cpu_offload()
-        except Exception:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            pipe.to(device)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        pipe.to(device)
 
-    try:
-        pipe.enable_vae_tiling()
-    except Exception:
-        pass
-    try:
-        pipe.enable_vae_slicing()
-    except Exception:
-        pass
+    if args.vae_tiling:
+        try:
+            pipe.enable_vae_tiling()
+        except Exception:
+            pass
+    if args.vae_slicing:
+        try:
+            pipe.enable_vae_slicing()
+        except Exception:
+            pass
 
     loras = json.loads(args.loras) if args.loras else []
     if loras:

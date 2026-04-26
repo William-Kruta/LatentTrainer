@@ -5,6 +5,7 @@ from app.models.training import (
     Job, JobBase, JobCreate, JobRead, SamplePrompt,
 )
 from app.models.generation import (
+    ControlNetConfig,
     GenerateConfig, GenerateConfigBase, GenerateConfigCreate, GenerateConfigRead,
     GenerateConfigSummary, GenerateFunctionConfig, GenerateFunctionConfigBase,
     GenerateFunctionConfigCreate, GenerateFunctionConfigRead, GenerateFunctionConfigSummary,
@@ -25,6 +26,7 @@ __all__ = [
     "Config", "ConfigBase", "ConfigCreate", "ConfigOptions", "ConfigRead", "ConfigSummary",
     "Dataset", "DatasetBase", "DatasetCreate", "DatasetDetail", "DatasetFile", "DatasetRead", "RenameFilesRequest",
     "Job", "JobBase", "JobCreate", "JobRead", "SamplePrompt",
+    "ControlNetConfig",
     "GenerateConfig", "GenerateConfigBase", "GenerateConfigCreate", "GenerateConfigRead",
     "GenerateConfigSummary", "GenerateFunctionConfig", "GenerateFunctionConfigBase",
     "GenerateFunctionConfigCreate", "GenerateFunctionConfigRead", "GenerateFunctionConfigSummary",

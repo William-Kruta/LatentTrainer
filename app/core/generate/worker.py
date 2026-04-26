@@ -54,7 +54,7 @@ class PersistentGenerateWorker:
                     idle_seconds_remaining=None,
                 )
 
-            model_path, loras = self._signature
+            model_path, loras, *_ = self._signature
             idle_remaining = None
             if self._last_used_at > 0:
                 idle_for = max(0.0, time.monotonic() - self._last_used_at)
