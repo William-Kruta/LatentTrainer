@@ -27,7 +27,7 @@ class PersistentGenerateWorker:
         self._monitor_thread = threading.Thread(target=self._monitor_idle_timeout, daemon=True)
         self._monitor_thread.start()
 
-    def _signature_for(self, payload: GenerateImageRequest) -> tuple[str, tuple[tuple[str, float], ...]]:
+    def _signature_for(self, payload: GenerateImageRequest) -> tuple:
         model_path = str(Path(payload.model_path).expanduser().resolve())
         loras = tuple(
             sorted(
@@ -35,7 +35,14 @@ class PersistentGenerateWorker:
                 for lora in payload.loras
             )
         )
-        return model_path, loras
+        return (
+            model_path,
+            loras,
+            payload.cpu_offload,
+            payload.sequential_cpu_offload,
+            payload.vae_tiling,
+            payload.vae_slicing,
+        )
 
     def status(self) -> GenerateWorkerStatus:
         with self._lock:
@@ -94,6 +101,15 @@ class PersistentGenerateWorker:
         if payload.loras:
             command.append("--lora_weights")
             command.extend(f"{Path(lora.path).expanduser()};{lora.strength}" for lora in payload.loras)
+
+        if payload.cpu_offload:
+            command.append("--cpu_offload")
+        if payload.sequential_cpu_offload:
+            command.append("--sequential_cpu_offload")
+        if payload.vae_tiling:
+            command.append("--vae_tiling")
+        if payload.vae_slicing:
+            command.append("--vae_slicing")
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
