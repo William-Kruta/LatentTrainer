@@ -63,6 +63,10 @@ const initialGenerateConfig = (): GenerateConfig => ({
   seed: null,
   batch_count: 1,
   sampler: "euler",
+  cpu_offload: false,
+  sequential_cpu_offload: false,
+  vae_tiling: false,
+  vae_slicing: false,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 });
