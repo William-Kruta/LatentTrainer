@@ -117,7 +117,8 @@ def generate_batch(pipe, request: dict) -> list[str]:
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     filenames: list[str] = []
-    generation_started_at = time.perf_counter()
+
+    emit({"type": "stage", "stage": "encoding_prompt"})
 
     for batch_idx in range(batch_count):
         img_seed = (seed + batch_idx) if seed is not None else None
@@ -127,7 +128,8 @@ def generate_batch(pipe, request: dict) -> list[str]:
             else None
         )
 
-        started_at = generation_started_at
+        # Reset timer per batch so it/s reflects only the current image.
+        batch_started_at = time.perf_counter()
 
         def _make_callback(idx: int, t0: float):
             def callback_on_step_end(_pipe, step_index, timestep, callback_kwargs):
@@ -150,6 +152,8 @@ def generate_batch(pipe, request: dict) -> list[str]:
                 return callback_kwargs
             return callback_on_step_end
 
+        emit({"type": "stage", "stage": "denoising", "batch_index": batch_idx, "batch_total": batch_count})
+
         call_kwargs: dict = {
             "prompt": prompt,
             "num_inference_steps": steps,
@@ -157,7 +161,7 @@ def generate_batch(pipe, request: dict) -> list[str]:
             "width": width,
             "height": height,
             "generator": generator,
-            "callback_on_step_end": _make_callback(batch_idx, started_at),
+            "callback_on_step_end": _make_callback(batch_idx, batch_started_at),
         }
         if negative_prompt:
             call_kwargs["negative_prompt"] = negative_prompt
@@ -175,6 +179,7 @@ def generate_batch(pipe, request: dict) -> list[str]:
                 pipe.to("cpu")
             result = pipe(**call_kwargs)
 
+        emit({"type": "stage", "stage": "saving"})
         image = result.images[0]
         filename = f"image_{timestamp}_{batch_idx:03d}.png"
         image.save(os.path.join(output_dir, filename))

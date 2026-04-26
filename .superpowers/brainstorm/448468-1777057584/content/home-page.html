@@ -1,0 +1,130 @@
+<h2>Home Page Layout</h2>
+<p class="subtitle">Does this structure feel right? Click to select your preferred layout.</p>
+
+<div class="cards">
+  <div class="card" data-choice="sidebar-layout" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #0f0f0f; border-radius: 8px; font-family: monospace; font-size: 12px;">
+      <div style="display: flex; gap: 12px; height: 340px;">
+        <!-- Sidebar -->
+        <div style="width: 140px; background: #1a1a1a; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;">
+          <div style="color: #a78bfa; font-weight: bold; font-size: 13px; margin-bottom: 8px;">⚡ LatentTrainer</div>
+          <div style="background: #2d2d2d; color: #e2e8f0; padding: 6px 8px; border-radius: 4px; font-size: 11px;">🏠 Home</div>
+          <div style="color: #94a3b8; padding: 6px 8px; font-size: 11px;">🎯 Training</div>
+          <div style="color: #94a3b8; padding: 6px 8px; font-size: 11px;">🗂️ Datasets</div>
+          <div style="color: #94a3b8; padding: 6px 8px; font-size: 11px;">⚙️ Configs</div>
+        </div>
+        <!-- Main content -->
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; overflow: hidden;">
+          <!-- GPU Cards row -->
+          <div style="display: flex; gap: 8px;">
+            <div style="flex: 1; background: #1a1a1a; border-radius: 6px; padding: 10px; border-left: 3px solid #22c55e;">
+              <div style="color: #94a3b8; font-size: 10px;">GPU 0 · RTX 4090</div>
+              <div style="color: #e2e8f0; font-size: 12px; margin: 4px 0;">VRAM: 18.2 / 24 GB</div>
+              <div style="background: #2d2d2d; border-radius: 3px; height: 4px;">
+                <div style="background: #22c55e; width: 76%; height: 4px; border-radius: 3px;"></div>
+              </div>
+              <div style="color: #94a3b8; font-size: 10px; margin-top: 4px;">Util: 94%  Temp: 72°C</div>
+            </div>
+            <div style="flex: 1; background: #1a1a1a; border-radius: 6px; padding: 10px; border-left: 3px solid #94a3b8;">
+              <div style="color: #94a3b8; font-size: 10px;">GPU 1 · RTX 3080</div>
+              <div style="color: #e2e8f0; font-size: 12px; margin: 4px 0;">VRAM: 2.1 / 10 GB</div>
+              <div style="background: #2d2d2d; border-radius: 3px; height: 4px;">
+                <div style="background: #64748b; width: 21%; height: 4px; border-radius: 3px;"></div>
+              </div>
+              <div style="color: #94a3b8; font-size: 10px; margin-top: 4px;">Util: 0%  Temp: 41°C</div>
+            </div>
+          </div>
+          <!-- Running Jobs -->
+          <div style="background: #1a1a1a; border-radius: 6px; padding: 10px; flex: 1;">
+            <div style="color: #94a3b8; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Running Jobs</div>
+            <div style="background: #0f0f0f; border-radius: 4px; padding: 8px; display: flex; align-items: center; gap: 8px;">
+              <div style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%; animation: pulse 1s infinite;"></div>
+              <div style="flex: 1;">
+                <div style="color: #e2e8f0; font-size: 11px;">my_character_lora</div>
+                <div style="color: #94a3b8; font-size: 10px;">Step 842 / 2000 · loss: 0.0821</div>
+              </div>
+              <div style="background: #2d2d2d; border-radius: 3px; width: 60px; height: 4px;">
+                <div style="background: #a78bfa; width: 42%; height: 4px; border-radius: 3px;"></div>
+              </div>
+              <div style="color: #a78bfa; font-size: 10px;">42%</div>
+            </div>
+          </div>
+          <!-- Completed Jobs -->
+          <div style="background: #1a1a1a; border-radius: 6px; padding: 10px; flex: 1;">
+            <div style="color: #94a3b8; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Recent Jobs</div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <div style="background: #0f0f0f; border-radius: 4px; padding: 6px 8px; display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #e2e8f0; font-size: 11px;">style_transfer_v2</span>
+                <span style="color: #22c55e; font-size: 10px;">✓ completed</span>
+              </div>
+              <div style="background: #0f0f0f; border-radius: 4px; padding: 6px 8px; display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #e2e8f0; font-size: 11px;">portrait_lora</span>
+                <span style="color: #ef4444; font-size: 10px;">✗ failed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Sidebar Navigation</h3>
+      <p>Persistent left sidebar with GPU cards at top, running jobs with live progress, recent job history below.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="topnav-layout" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #0f0f0f; border-radius: 8px; font-size: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 10px; height: 340px;">
+        <!-- Top nav -->
+        <div style="background: #1a1a1a; border-radius: 6px; padding: 10px 16px; display: flex; align-items: center; gap: 24px;">
+          <div style="color: #a78bfa; font-weight: bold; font-size: 13px;">⚡ LatentTrainer</div>
+          <div style="color: #e2e8f0; font-size: 11px; border-bottom: 2px solid #a78bfa; padding-bottom: 2px;">Home</div>
+          <div style="color: #94a3b8; font-size: 11px;">Training</div>
+          <div style="color: #94a3b8; font-size: 11px;">Datasets</div>
+          <div style="color: #94a3b8; font-size: 11px;">Configs</div>
+        </div>
+        <!-- GPU row -->
+        <div style="display: flex; gap: 8px;">
+          <div style="flex: 1; background: #1a1a1a; border-radius: 6px; padding: 10px; border-top: 3px solid #22c55e;">
+            <div style="color: #94a3b8; font-size: 10px;">GPU 0 · RTX 4090</div>
+            <div style="color: #e2e8f0; font-size: 11px;">18.2 / 24 GB · 94% util</div>
+          </div>
+          <div style="flex: 1; background: #1a1a1a; border-radius: 6px; padding: 10px; border-top: 3px solid #64748b;">
+            <div style="color: #94a3b8; font-size: 10px;">GPU 1 · RTX 3080</div>
+            <div style="color: #e2e8f0; font-size: 11px;">2.1 / 10 GB · 0% util</div>
+          </div>
+        </div>
+        <!-- Jobs split -->
+        <div style="display: flex; gap: 8px; flex: 1;">
+          <div style="flex: 1; background: #1a1a1a; border-radius: 6px; padding: 10px;">
+            <div style="color: #94a3b8; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Running</div>
+            <div style="background: #0f0f0f; border-radius: 4px; padding: 8px;">
+              <div style="color: #e2e8f0; font-size: 11px;">my_character_lora</div>
+              <div style="color: #94a3b8; font-size: 10px; margin: 3px 0;">Step 842 / 2000</div>
+              <div style="background: #2d2d2d; border-radius: 3px; height: 4px; margin-top: 4px;">
+                <div style="background: #a78bfa; width: 42%; height: 4px; border-radius: 3px;"></div>
+              </div>
+            </div>
+          </div>
+          <div style="flex: 1; background: #1a1a1a; border-radius: 6px; padding: 10px;">
+            <div style="color: #94a3b8; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Recent</div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <div style="background: #0f0f0f; border-radius: 4px; padding: 6px 8px; display: flex; justify-content: space-between;">
+                <span style="color: #e2e8f0; font-size: 11px;">style_transfer_v2</span>
+                <span style="color: #22c55e; font-size: 10px;">✓</span>
+              </div>
+              <div style="background: #0f0f0f; border-radius: 4px; padding: 6px 8px; display: flex; justify-content: space-between;">
+                <span style="color: #e2e8f0; font-size: 11px;">portrait_lora</span>
+                <span style="color: #ef4444; font-size: 10px;">✗</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Top Navigation</h3>
+      <p>Horizontal nav bar, GPU cards in a row, running and recent jobs side-by-side below.</p>
+    </div>
+  </div>
+</div>

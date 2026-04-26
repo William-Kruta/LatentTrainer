@@ -13,11 +13,19 @@ from typing import Callable
 
 import httpx
 from fastapi import HTTPException
+from PIL import Image, PngImagePlugin
 
 from app.db import BASE_DIR
-from app.models import GenerateImageRequest, GenerateImageResponse, GenerateWorkerStatus, GenerationStatus
+from app.models import (
+    GenerateImageRequest,
+    GenerateImageResponse,
+    GenerateQueueStatus,
+    GenerateWorkerStatus,
+    GenerationStatus,
+)
 
 logger = logging.getLogger(__name__)
+GENERATE_METADATA_KEY = "latenttrainer_generate_config"
 
 GENERATIONS_DIR = BASE_DIR / "data" / "generations"
 GENERATIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -39,6 +47,7 @@ class GenerationRecord:
     total_steps: int = 0
     rate_value: float | None = None
     rate_unit: str | None = None
+    stage: str | None = None
     error: str | None = None
     log_lines: list[str] = field(default_factory=list)
 
@@ -185,6 +194,7 @@ class PersistentGenerateWorker:
         output_dir: Path,
         on_log: Callable[[str], None],
         on_progress: Callable[[int, int, float | None, str | None, int], None],
+        on_stage: Callable[[str], None] | None = None,
     ) -> list[str]:
         with self._lock:
             signature = self._signature_for(payload)
@@ -237,6 +247,9 @@ class PersistentGenerateWorker:
                         event.get("rate_unit"),
                         int(event.get("batch_index", 0)),
                     )
+                elif event_type == "stage":
+                    if on_stage:
+                        on_stage(str(event.get("stage", "")))
                 elif event_type == "completed":
                     filenames = event.get("filenames") or []
                     if not filenames:
@@ -260,6 +273,22 @@ class PersistentChromaWorker:
     def _signature_for(self, payload: GenerateImageRequest) -> tuple[str, str]:
         ckpt_path = str(Path(payload.model_path).expanduser().resolve())
         return ckpt_path, payload.chroma_pipeline_repo
+
+    def status(self) -> dict:
+        with self._lock:
+            process_alive = self._process is not None and self._process.poll() is None
+            if not process_alive or self._signature is None:
+                return {"chroma_state": "cold", "chroma_model_path": None, "chroma_idle_seconds_remaining": None}
+            ckpt_path, _ = self._signature
+            idle_remaining = None
+            if self._last_used_at > 0:
+                idle_for = max(0.0, time.monotonic() - self._last_used_at)
+                idle_remaining = max(0, int(WORKER_IDLE_TIMEOUT_SECONDS - idle_for))
+            return {
+                "chroma_state": "warm",
+                "chroma_model_path": ckpt_path,
+                "chroma_idle_seconds_remaining": idle_remaining,
+            }
 
     def _stop_locked(self) -> None:
         if self._process is None:
@@ -352,6 +381,7 @@ class PersistentChromaWorker:
         output_dir: Path,
         on_log: Callable[[str], None],
         on_progress: Callable[[int, int, float | None, str | None, int], None],
+        on_stage: Callable[[str], None] | None = None,
     ) -> list[str]:
         with self._lock:
             signature = self._signature_for(payload)
@@ -404,7 +434,8 @@ class PersistentChromaWorker:
                         int(event.get("batch_index", 0)),
                     )
                 elif event_type == "stage":
-                    on_log(json.dumps(event))
+                    if on_stage:
+                        on_stage(str(event.get("stage", "")))
                 elif event_type == "completed":
                     filenames = event.get("filenames") or []
                     if not filenames:
@@ -418,6 +449,9 @@ class PersistentChromaWorker:
 
 _generation_lock = threading.Lock()
 _generations: dict[str, GenerationRecord] = {}
+_generation_queue: list[str] = []
+_active_generation_id: str | None = None
+_generation_condition = threading.Condition(_generation_lock)
 _worker = PersistentGenerateWorker()
 _chroma_worker = PersistentChromaWorker()
 
@@ -446,6 +480,17 @@ def _validate_generation_request(payload: GenerateImageRequest) -> None:
                 raise HTTPException(status_code=422, detail=f"LoRA path does not exist: {lora.path}")
             if lora.strength < 0 or lora.strength > 1.0:
                 raise HTTPException(status_code=422, detail="LoRA strength must be between 0.0 and 1.0.")
+
+
+def _attach_generation_metadata(image_path: Path, payload: GenerateImageRequest) -> None:
+    if image_path.suffix.lower() != ".png" or not image_path.exists():
+        return
+
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text(GENERATE_METADATA_KEY, json.dumps(payload.model_dump(mode="json")))
+
+    with Image.open(image_path) as image:
+        image.save(image_path, format="PNG", pnginfo=metadata)
 
 
 def _enhance_prompt(payload: GenerateImageRequest) -> GenerateImageRequest:
@@ -498,11 +543,10 @@ def start_generation(payload: GenerateImageRequest) -> GenerateImageResponse:
         status=GenerationStatus.pending,
         total_steps=payload.steps,
     )
-    with _generation_lock:
+    with _generation_condition:
         _generations[generation_id] = record
-
-    thread = threading.Thread(target=_run_generation, args=(generation_id,), daemon=True)
-    thread.start()
+        _generation_queue.append(generation_id)
+        _generation_condition.notify()
     return _serialize(record)
 
 
@@ -515,12 +559,44 @@ def get_generation(generation_id: str) -> GenerateImageResponse:
 
 
 def get_worker_status() -> GenerateWorkerStatus:
-    return _worker.status()
+    sdxl = _worker.status()
+    chroma = _chroma_worker.status()
+    return GenerateWorkerStatus(
+        state=sdxl.state,
+        model_path=sdxl.model_path,
+        lora_count=sdxl.lora_count,
+        idle_timeout_seconds=sdxl.idle_timeout_seconds,
+        idle_seconds_remaining=sdxl.idle_seconds_remaining,
+        **chroma,
+    )
 
 
 def stop_worker() -> None:
     with _worker._lock:
         _worker._stop_locked()
+    with _chroma_worker._lock:
+        _chroma_worker._stop_locked()
+
+
+def get_queue_status() -> GenerateQueueStatus:
+    with _generation_lock:
+        return GenerateQueueStatus(
+            active_generation_id=_active_generation_id,
+            queued_count=len(_generation_queue),
+            queued_generation_ids=list(_generation_queue),
+        )
+
+
+def remove_latest_queued_generation() -> GenerateImageResponse:
+    with _generation_condition:
+        if not _generation_queue:
+            raise HTTPException(status_code=404, detail="No queued generations to remove.")
+        generation_id = _generation_queue.pop()
+        record = _generations[generation_id]
+        record.status = GenerationStatus.failed
+        record.stage = "cancelled"
+        record.error = "Removed from queue."
+        return _serialize(record)
 
 
 def _serialize(record: GenerationRecord) -> GenerateImageResponse:
@@ -545,6 +621,7 @@ def _serialize(record: GenerationRecord) -> GenerateImageResponse:
         total_steps=record.total_steps or payload.steps,
         rate_value=record.rate_value,
         rate_unit=record.rate_unit,
+        stage=record.stage,
         error=record.error,
     )
 
@@ -587,18 +664,19 @@ def _run_generation(generation_id: str) -> None:
         batch_index=batch_index,
     )
     on_log = lambda line: _append_log(generation_id, line)
+    on_stage = lambda stage: _update_record(generation_id, stage=stage)
 
     try:
         if payload.architecture == "chroma":
             # Stop SDXL worker to free VRAM before loading Chroma
             with _worker._lock:
                 _worker._stop_locked()
-            filenames = _chroma_worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress)
+            filenames = _chroma_worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress, on_stage=on_stage)
         else:
             # Stop Chroma worker to free VRAM before loading SDXL
             with _chroma_worker._lock:
                 _chroma_worker._stop_locked()
-            filenames = _worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress)
+            filenames = _worker.run(payload, output_dir, on_log=on_log, on_progress=on_progress, on_stage=on_stage)
     except Exception as exc:
         logger.exception("Generation failed for %s", generation_id)
         _update_record(generation_id, status=GenerationStatus.failed, error=str(exc))
@@ -608,6 +686,10 @@ def _run_generation(generation_id: str) -> None:
     for filename in filenames:
         image_path = output_dir / filename
         if image_path.exists():
+            try:
+                _attach_generation_metadata(image_path, payload)
+            except Exception:
+                logger.exception("Failed to attach metadata to %s", image_path)
             image_urls.append(f"/api/generate/images/{generation_id}/{filename}")
 
     if not image_urls:
@@ -625,3 +707,26 @@ def _run_generation(generation_id: str) -> None:
         current_step=payload.steps,
         total_steps=payload.steps,
     )
+
+
+def _generation_queue_worker() -> None:
+    global _active_generation_id
+
+    while True:
+        with _generation_condition:
+            while not _generation_queue:
+                _generation_condition.wait()
+            generation_id = _generation_queue.pop(0)
+            _active_generation_id = generation_id
+
+        try:
+            _run_generation(generation_id)
+        finally:
+            with _generation_condition:
+                if _active_generation_id == generation_id:
+                    _active_generation_id = None
+                _generation_condition.notify_all()
+
+
+_generation_worker_thread = threading.Thread(target=_generation_queue_worker, daemon=True)
+_generation_worker_thread.start()

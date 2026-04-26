@@ -226,11 +226,13 @@ class GenerateImageResponse(SQLModel):
     total_steps: int
     rate_value: float | None = None
     rate_unit: str | None = None
+    stage: str | None = None
     error: str | None = None
 
 
 class GenerateConfigBase(SQLModel):
     name: str
+    architecture: str = "sdxl"
     loras: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     model_path: str
     positive_prompt: str
@@ -252,6 +254,7 @@ class GenerateConfig(GenerateConfigBase, table=True):
 
 class GenerateConfigCreate(SQLModel):
     name: str
+    architecture: str = "sdxl"
     loras: list["GenerateLoraSpec"] = Field(default_factory=list)
     model_path: str
     positive_prompt: str
@@ -283,6 +286,15 @@ class GenerateWorkerStatus(SQLModel):
     lora_count: int = 0
     idle_timeout_seconds: int
     idle_seconds_remaining: int | None = None
+    chroma_state: str = "cold"
+    chroma_model_path: str | None = None
+    chroma_idle_seconds_remaining: int | None = None
+
+
+class GenerateQueueStatus(SQLModel):
+    active_generation_id: str | None = None
+    queued_count: int = 0
+    queued_generation_ids: list[str] = []
 
 
 class GenerateFunctionConfigBase(SQLModel):
@@ -354,6 +366,8 @@ class GalleryImage(SQLModel):
     size_bytes: int
     width: int | None = None
     height: int | None = None
+    media_type: str = "image"
+    video_url: str | None = None
 
 
 class GalleryDeleteRequest(SQLModel):
@@ -386,3 +400,56 @@ class MediaDownloadResponse(SQLModel):
 
 class MediaFrameExportResponse(SQLModel):
     path: str
+
+
+class AppSettings(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    model_root: str = ""
+    lora_root: str = ""
+    output_root: str = ""
+    dataset_root: str = ""
+
+
+class AppSettingsRead(SQLModel):
+    model_root: str
+    lora_root: str
+    output_root: str
+    dataset_root: str
+
+
+class AppSettingsUpdate(SQLModel):
+    model_root: str = ""
+    lora_root: str = ""
+    output_root: str = ""
+    dataset_root: str = ""
+
+
+class LtxModelConfig(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    ltx_install_path: str = ""
+    model_path: str = ""
+    spatial_upscaler_path: str = ""
+    temporal_upscaler_path: str = ""
+    text_encoder_repo_id: str = ""
+    loras: list[dict[str, Any]] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+
+
+class LtxModelConfigRead(SQLModel):
+    ltx_install_path: str
+    model_path: str
+    spatial_upscaler_path: str
+    temporal_upscaler_path: str
+    text_encoder_repo_id: str
+    loras: list[dict[str, Any]]
+
+
+class LtxModelConfigUpdate(SQLModel):
+    ltx_install_path: str = ""
+    model_path: str = ""
+    spatial_upscaler_path: str = ""
+    temporal_upscaler_path: str = ""
+    text_encoder_repo_id: str = ""
+    loras: list[dict[str, Any]] = Field(default_factory=list)

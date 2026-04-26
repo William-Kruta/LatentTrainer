@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Media Page – Upload Placement</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    background: #111;
+    color: #e2e8f0;
+    padding: 24px;
+  }
+  h1 { font-size: 1.2rem; font-weight: 700; color: #a78bfa; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85rem; color: #64748b; margin-bottom: 24px; }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .card {
+    background: #1a1a1a;
+    border: 2px solid #2d2d2d;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 150ms;
+  }
+  .card:hover { border-color: #a78bfa; }
+  .card.selected { border-color: #a78bfa; box-shadow: 0 0 0 2px rgba(167,139,250,0.25); }
+
+  .card-label {
+    padding: 10px 14px 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #a78bfa;
+  }
+  .card-title {
+    padding: 0 14px 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+  .card-desc {
+    padding: 0 14px 14px;
+    font-size: 0.78rem;
+    color: #64748b;
+    line-height: 1.5;
+  }
+
+  /* Mockup shared styles */
+  .mockup {
+    margin: 0 14px 14px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #2d2d2d;
+  }
+  .m-topbar {
+    display: flex; align-items: center; gap: 8px;
+    background: #1f1f1f; padding: 7px 10px;
+    border-bottom: 1px solid #2d2d2d;
+  }
+  .m-dot { width: 8px; height: 8px; border-radius: 50%; background: #3d3d3d; }
+  .m-title { font-size: 0.7rem; color: #64748b; margin-left: 4px; }
+  .m-body {
+    display: flex;
+    height: 220px;
+    background: #0f0f0f;
+  }
+  .m-sidebar {
+    width: 120px;
+    background: #141414;
+    border-right: 1px solid #2d2d2d;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .m-main {
+    flex: 1;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow: hidden;
+  }
+  .m-eyebrow { font-size: 0.55rem; letter-spacing: 0.1em; text-transform: uppercase; color: #a78bfa; font-weight: 700; }
+  .m-tabs { display: flex; gap: 4px; }
+  .m-tab {
+    flex: 1; font-size: 0.6rem; padding: 4px 0; border-radius: 4px;
+    background: #2d2d2d; color: #94a3b8; text-align: center; border: 1px solid #3d3d3d;
+  }
+  .m-tab.active { background: #a78bfa; color: #0f0f0f; border-color: #a78bfa; }
+  .m-section-label { font-size: 0.55rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }
+  .m-item {
+    background: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 4px;
+    padding: 5px 6px; font-size: 0.6rem; color: #94a3b8;
+  }
+  .m-item.active { border-color: #a78bfa; background: rgba(167,139,250,0.1); color: #e2e8f0; }
+  .m-upload-btn {
+    background: transparent; border: 1px dashed #3d3d3d;
+    border-radius: 4px; padding: 6px; text-align: center;
+    font-size: 0.58rem; color: #64748b;
+  }
+  .m-upload-zone {
+    flex: 1; border: 1px dashed #a78bfa; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(167,139,250,0.05); font-size: 0.65rem; color: #a78bfa;
+    flex-direction: column; gap: 4px; text-align: center;
+  }
+  .m-upload-icon { font-size: 1.4rem; }
+  .m-video-frame {
+    background: linear-gradient(135deg, rgba(167,139,250,0.08), rgba(8,10,16,0.95));
+    border-radius: 5px; border: 1px solid #2d2d2d;
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; color: #3d3d3d;
+    min-height: 80px;
+  }
+  .m-controls { display: flex; gap: 4px; flex-wrap: wrap; }
+  .m-btn {
+    font-size: 0.58rem; padding: 3px 7px; border-radius: 3px;
+    background: #2d2d2d; color: #94a3b8; border: 1px solid #3d3d3d;
+  }
+  .m-btn.primary { background: #a78bfa; color: #0f0f0f; border-color: #a78bfa; }
+  .m-pill {
+    font-size: 0.55rem; padding: 2px 6px; border-radius: 3px;
+    background: rgba(167,139,250,0.15); color: #a78bfa; border: 1px solid rgba(167,139,250,0.3);
+  }
+  .m-upload-sidebar-btn {
+    background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.35);
+    border-radius: 4px; padding: 5px 6px; text-align: center;
+    font-size: 0.6rem; color: #a78bfa; font-weight: 600;
+  }
+  .m-fab {
+    position: absolute; bottom: 10px; right: 10px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #a78bfa; color: #0f0f0f;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; font-weight: 700;
+  }
+  .m-main-rel { position: relative; }
+</style>
+<script>
+function toggleSelect(card) {
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  if (window.recordChoice) recordChoice(card.dataset.choice, card.querySelector('.card-title').textContent);
+}
+</script>
+</head>
+<body>
+<h1>Where should the upload button live?</h1>
+<p class="subtitle">Click an option to select it — all three add drag-and-drop support.</p>
+
+<div class="cards">
+
+  <!-- Option A: Third tab in mode switcher -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-label">Option A</div>
+    <div class="card-title">Third Mode Tab</div>
+    <div class="mockup">
+      <div class="m-topbar">
+        <div class="m-dot"></div><div class="m-dot"></div><div class="m-dot"></div>
+        <span class="m-title">Media</span>
+      </div>
+      <div class="m-body">
+        <div class="m-sidebar">
+          <div class="m-eyebrow">Mode</div>
+          <div class="m-tabs">
+            <div class="m-tab active">Player</div>
+            <div class="m-tab">↓ DL</div>
+            <div class="m-tab">↑ Up</div>
+          </div>
+          <div class="m-eyebrow" style="margin-top:6px">Uploads</div>
+          <div class="m-item active">video_01.mp4</div>
+          <div class="m-item">video_02.mp4</div>
+        </div>
+        <div class="m-main">
+          <div class="m-eyebrow">Upload Mode</div>
+          <div class="m-upload-zone">
+            <div class="m-upload-icon">⬆</div>
+            <div>Drop video files here</div>
+            <div style="font-size:0.55rem;color:#3d3d3d">or click to browse</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-desc">Upload becomes a third mode alongside Player and Download. Clean separation — the main panel shows a large, clear dropzone.</div>
+  </div>
+
+  <!-- Option B: Inline button in sidebar -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-label">Option B</div>
+    <div class="card-title">Sidebar Upload Button</div>
+    <div class="mockup">
+      <div class="m-topbar">
+        <div class="m-dot"></div><div class="m-dot"></div><div class="m-dot"></div>
+        <span class="m-title">Media</span>
+      </div>
+      <div class="m-body">
+        <div class="m-sidebar">
+          <div class="m-tabs">
+            <div class="m-tab active">Player</div>
+            <div class="m-tab">↓ DL</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+            <div class="m-eyebrow">Uploads</div>
+            <div class="m-pill">↑ Add</div>
+          </div>
+          <div class="m-item active">video_01.mp4</div>
+          <div class="m-item">video_02.mp4</div>
+          <div class="m-item">video_03.mp4</div>
+        </div>
+        <div class="m-main">
+          <div class="m-eyebrow">Player</div>
+          <div class="m-video-frame">▶ video_01.mp4</div>
+          <div class="m-controls">
+            <div class="m-btn">⏮ Back</div>
+            <div class="m-btn primary">▶ Play</div>
+            <div class="m-btn">Forward ⏭</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-desc">A compact "↑ Add" pill sits inline with the "Uploads" header. Clicking opens an upload modal. The sidebar stays minimal. Drag-and-drop works anywhere on the page.</div>
+  </div>
+
+  <!-- Option C: Modal with dropzone triggered from sidebar button -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-label">Option C</div>
+    <div class="card-title">Prominent Sidebar CTA</div>
+    <div class="mockup">
+      <div class="m-topbar">
+        <div class="m-dot"></div><div class="m-dot"></div><div class="m-dot"></div>
+        <span class="m-title">Media</span>
+      </div>
+      <div class="m-body">
+        <div class="m-sidebar">
+          <div class="m-tabs">
+            <div class="m-tab active">Player</div>
+            <div class="m-tab">↓ DL</div>
+          </div>
+          <div class="m-upload-sidebar-btn">⬆ Upload Video</div>
+          <div class="m-eyebrow">Uploads</div>
+          <div class="m-item active">video_01.mp4</div>
+          <div class="m-item">video_02.mp4</div>
+        </div>
+        <div class="m-main">
+          <div class="m-eyebrow">Player</div>
+          <div class="m-video-frame">▶ video_01.mp4</div>
+          <div class="m-controls">
+            <div class="m-btn">⏮ Back</div>
+            <div class="m-btn primary">▶ Play</div>
+            <div class="m-btn">Forward ⏭</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-desc">A full-width "Upload Video" button sits prominently in the sidebar, always visible. Clicking opens a modal with a large drag-and-drop zone.</div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -72,6 +72,8 @@ export interface GalleryImage {
   size_bytes: number;
   width: number | null;
   height: number | null;
+  media_type: "image" | "video";
+  video_url: string | null;
 }
 
 export interface MediaVideo {
@@ -160,6 +162,7 @@ export interface GenerateImageResponse {
   batch_count: number;
   batch_index: number;
   sampler: string;
+  stage: string | null;
   current_step: number;
   total_steps: number;
   rate_value: number | null;
@@ -186,6 +189,15 @@ export interface GenerateWorkerStatus {
   lora_count: number;
   idle_timeout_seconds: number;
   idle_seconds_remaining: number | null;
+  chroma_state: "warm" | "cold";
+  chroma_model_path: string | null;
+  chroma_idle_seconds_remaining: number | null;
+}
+
+export interface GenerateQueueStatus {
+  active_generation_id: string | null;
+  queued_count: number;
+  queued_generation_ids: string[];
 }
 
 export interface GenerateFunctionConfigSummary {
@@ -221,6 +233,85 @@ export interface ImageEditResponse {
   rate_value: number | null;
   rate_unit: string | null;
   error: string | null;
+}
+
+export interface ImageEditImport {
+  hf_repo: string;
+  prompt: string;
+  loras: GenerateLoraSpec[];
+  width: number;
+  height: number;
+  steps: number;
+  limit: number | null;
+}
+
+export type MetadataImportResult =
+  | { mode: "text2image"; text2image: GenerateImageRequest; image_edit: null }
+  | { mode: "image-edit"; image_edit: ImageEditImport; text2image: null };
+
+export interface ImageEditJobStatus {
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  stage: string | null;
+  current_step: number;
+  total_steps: number;
+  rate_value: number | null;
+  rate_unit: string | null;
+  image_url: string | null;
+  error: string | null;
+}
+
+export interface LtxGenerateRequest {
+  prompt: string;
+  negative_prompt: string;
+  width: number;
+  height: number;
+  num_frames: number;
+  frame_rate: number;
+  num_inference_steps: number;
+  cfg_scale: number;
+  stg_scale: number;
+  seed: number;
+  offload_mode: string;
+  loras: GenerateLoraSpec[];
+}
+
+export interface LtxJobStatus {
+  job_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  stage: string | null;
+  current_step: number;
+  total_steps: number;
+  rate_value: number | null;
+  rate_unit: string | null;
+  video_url: string | null;
+  error: string | null;
+}
+
+export interface AppSettings {
+  model_root: string;
+  lora_root: string;
+  output_root: string;
+  dataset_root: string;
+}
+
+export interface LtxModelConfig {
+  ltx_install_path: string;
+  model_path: string;
+  spatial_upscaler_path: string;
+  temporal_upscaler_path: string;
+  text_encoder_repo_id: string;
+  loras: GenerateLoraSpec[];
+}
+
+export interface LoraFilesResponse {
+  lora_root: string;
+  files: string[];
+}
+
+export interface ModelFilesResponse {
+  model_root: string;
+  files: string[];
 }
 
 export class ApiError extends Error {
@@ -269,6 +360,12 @@ export const api = {
   getGenerateConfig: (configId: number) => request<GenerateConfig>(`/api/generate/configs/${configId}`),
   saveGenerateConfig: (body: Omit<GenerateConfig, "id" | "created_at" | "updated_at">) =>
     request<GenerateConfig>("/api/generate/configs", { method: "POST", body: JSON.stringify(body) }),
+  importGenerateConfig: (body: Omit<GenerateConfig, "id" | "created_at" | "updated_at">) =>
+    request<GenerateConfig>("/api/generate/configs/import", { method: "POST", body: JSON.stringify(body) }),
+  deleteGenerateConfig: (configId: number) =>
+    request<void>(`/api/generate/configs/${configId}`, { method: "DELETE" }),
+  duplicateGenerateConfig: (configId: number) =>
+    request<GenerateConfig>(`/api/generate/configs/${configId}/duplicate`, { method: "POST" }),
   getGenerateFunctionConfigs: () => request<GenerateFunctionConfigSummary[]>("/api/generate/function-configs"),
   getGenerateFunctionConfig: (configId: number) =>
     request<GenerateFunctionConfig>(`/api/generate/function-configs/${configId}`),
@@ -276,6 +373,29 @@ export const api = {
     body: Omit<GenerateFunctionConfig, "id" | "created_at" | "updated_at">,
   ) => request<GenerateFunctionConfig>("/api/generate/function-configs", { method: "POST", body: JSON.stringify(body) }),
   getGenerateWorkerStatus: () => request<GenerateWorkerStatus>("/api/generate/worker"),
+  unloadGenerateWorkers: () => request<void>("/api/generate/worker/unload", { method: "POST" }),
+  getGenerateQueueStatus: () => request<GenerateQueueStatus>("/api/generate/queue"),
+  removeLatestQueuedGeneration: () =>
+    request<GenerateImageResponse>("/api/generate/queue/latest", { method: "DELETE" }),
+  importGenerateMetadata: async (file: File) => {
+    const formData = new FormData();
+    formData.set("file", file, file.name);
+    const response = await fetch("/api/generate/import-metadata", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      let message = `Request failed: ${response.status}`;
+      try {
+        const payload = (await response.json()) as { detail?: string };
+        if (payload.detail) message = payload.detail;
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      throw new ApiError(message, response.status);
+    }
+    return (await response.json()) as MetadataImportResult;
+  },
   runImageEditFunction: async (body: {
     source_generation_id: string;
     prompt: string;
@@ -370,6 +490,51 @@ export const api = {
     }
     return (await response.json()) as MediaFrameExportResponse;
   },
+  startLtxGenerate: (body: LtxGenerateRequest) =>
+    request<LtxJobStatus>("/api/ltx/generate", { method: "POST", body: JSON.stringify(body) }),
+  getLtxJob: (jobId: string) => request<LtxJobStatus>(`/api/ltx/jobs/${jobId}`),
+  getSettings: () => request<AppSettings>("/api/settings"),
+  updateSettings: (body: AppSettings) =>
+    request<AppSettings>("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
+  getLtxConfig: () => request<LtxModelConfig>("/api/settings/ltx"),
+  updateLtxConfig: (body: LtxModelConfig) =>
+    request<LtxModelConfig>("/api/settings/ltx", { method: "PUT", body: JSON.stringify(body) }),
+  getLoraFiles: () => request<LoraFilesResponse>("/api/settings/loras"),
+  getModelFiles: () => request<ModelFilesResponse>("/api/settings/models"),
+  startImageEdit: async (body: {
+    prompt: string;
+    hf_repo: string;
+    width: number;
+    height: number;
+    steps: number;
+    limit: number | null;
+    loras: GenerateLoraSpec[];
+    reference_images: File[];
+  }): Promise<ImageEditJobStatus> => {
+    const form = new FormData();
+    form.set("prompt", body.prompt);
+    form.set("hf_repo", body.hf_repo);
+    form.set("width", String(body.width));
+    form.set("height", String(body.height));
+    form.set("steps", String(body.steps));
+    if (body.limit !== null) form.set("limit", String(body.limit));
+    form.set("loras_json", JSON.stringify(body.loras));
+    for (const file of body.reference_images) {
+      form.append("reference_images", file, file.name);
+    }
+    const response = await fetch("/api/image-edit", { method: "POST", body: form });
+    if (!response.ok) {
+      let message = `Request failed: ${response.status}`;
+      try {
+        const payload = (await response.json()) as { detail?: string };
+        if (payload.detail) message = payload.detail;
+      } catch { /* ignore */ }
+      throw new ApiError(message, response.status);
+    }
+    return (await response.json()) as ImageEditJobStatus;
+  },
+  getImageEditJob: (jobId: string) =>
+    request<ImageEditJobStatus>(`/api/image-edit/${jobId}`),
   uploadMediaVideo: async (file: File): Promise<MediaDownloadResponse> => {
     const formData = new FormData();
     formData.set("file", file, file.name);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -6,17 +6,42 @@ import {
   type GenerateConfig,
   type GenerateConfigSummary,
   type GenerateImageRequest,
+  type GenerateQueueStatus,
   type GenerateWorkerStatus,
+  type ImageEditImport,
+  type Job,
   type PromptEnhanceSettings,
 } from "../lib/api";
 import { type PipelineStep, makeStep } from "../lib/pipeline";
+import { useToast } from "../components/Toast";
 import { CollapsibleSection } from "../components/generate/CollapsibleSection";
 import { ConfigSaveRow } from "../components/generate/ConfigSaveRow";
+import { ImageEditPanel } from "../components/generate/ImageEditPanel";
 import { LoraStack } from "../components/generate/LoraStack";
+import { PathCombobox } from "../components/generate/PathCombobox";
 import { PipelineStepCard } from "../components/generate/PipelineStepCard";
 import { PromptEnhanceSettingsModal } from "../components/generate/PromptEnhanceSettingsModal";
 import { SdxlResultCard } from "../components/generate/SdxlResultCard";
 import { WorkerStatusCard } from "../components/generate/WorkerStatusCard";
+import { GalleryViewer } from "../components/gallery/GalleryViewer";
+
+const PROMPT_HISTORY_KEY = "latenttrainer_prompt_history";
+const MAX_PROMPT_HISTORY = 20;
+
+function loadPromptHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) ?? "[]") as string[];
+  } catch { return []; }
+}
+
+function pushPromptHistory(prompt: string) {
+  if (!prompt.trim()) return;
+  const existing = loadPromptHistory().filter((p) => p !== prompt);
+  const next = [prompt, ...existing].slice(0, MAX_PROMPT_HISTORY);
+  localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(next));
+}
+
+type GenerateMode = "text2image" | "image-edit" | "coming-soon";
 
 const CANVAS_PRESETS = [
   { id: "manual", label: "Manual", width: null, height: null },
@@ -81,6 +106,13 @@ function detectCanvasPreset(width: number, height: number) {
 }
 
 export function GeneratePage() {
+  const toast = useToast();
+  const t2iFormRef = useRef<HTMLFormElement>(null);
+
+  const [mode, setMode] = useState<GenerateMode>("text2image");
+  const [imageEditImport, setImageEditImport] = useState<ImageEditImport | null>(null);
+  const [imageEditInitialRefs, setImageEditInitialRefs] = useState<string[] | null>(null);
+
   // Generate form state
   const [form, setForm] = useState<GenerateImageRequest>(initialForm);
   const [configName, setConfigName] = useState("");
@@ -90,10 +122,14 @@ export function GeneratePage() {
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [showPromptSettings, setShowPromptSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isImportDragOver, setIsImportDragOver] = useState(false);
 
   // SDXL result state
   const [result, setResult] = useState<import("../lib/api").GenerateImageResponse | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [currentGenerationId, setCurrentGenerationId] = useState<string | null>(null);
+  const [isSubmittingGeneration, setIsSubmittingGeneration] = useState(false);
+
+  const isGenerating = result?.status === "pending" || result?.status === "running";
   const [sdxlSaveOutput, setSdxlSaveOutput] = useState(true);
 
   // Caption overlay
@@ -103,6 +139,17 @@ export function GeneratePage() {
 
   // Worker
   const [workerStatus, setWorkerStatus] = useState<GenerateWorkerStatus | null>(null);
+  const [queueStatus, setQueueStatus] = useState<GenerateQueueStatus | null>(null);
+  const [isUnloading, setIsUnloading] = useState(false);
+  const [trainingJobToConfirm, setTrainingJobToConfirm] = useState<Job | null>(null);
+
+  // Model combobox
+  const [modelRoot, setModelRoot] = useState("");
+  const [modelFiles, setModelFiles] = useState<string[]>([]);
+
+  // Prompt history
+  const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const [showPromptHistory, setShowPromptHistory] = useState(false);
 
   // Pipeline steps
   const [steps, setSteps] = useState<PipelineStep[]>([]);
@@ -135,15 +182,74 @@ export function GeneratePage() {
     void load();
   }, []);
 
-  // ── Worker status polling ─────────────────────────────────────────
+  // ── Worker and queue polling ──────────────────────────────────────
   useEffect(() => {
     async function poll() {
-      try { setWorkerStatus(await api.getGenerateWorkerStatus()); } catch { /* ignore */ }
+      try {
+        const [worker, queue] = await Promise.all([
+          api.getGenerateWorkerStatus(),
+          api.getGenerateQueueStatus(),
+        ]);
+        setWorkerStatus(worker);
+        setQueueStatus(queue);
+      } catch {
+        /* ignore */
+      }
     }
     void poll();
-    const id = window.setInterval(() => void poll(), 5000);
+    const id = window.setInterval(() => void poll(), 500);
     return () => window.clearInterval(id);
   }, []);
+
+  // ── Poll current generation until terminal ────────────────────────
+  useEffect(() => {
+    if (!currentGenerationId) return;
+    const genId = currentGenerationId;
+    let cancelled = false;
+
+    const id = window.setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const next = await api.getGeneration(genId);
+        if (cancelled) return;
+        setResult(next);
+        if (next.status === "completed" || next.status === "failed") {
+          window.clearInterval(id);
+          if (next.status === "failed") {
+            setError(next.error ?? "Generation failed.");
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }, 500);
+
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [currentGenerationId]);
+
+  // ── Load model files for combobox ────────────────────────────────
+  useEffect(() => {
+    api.getModelFiles().then((res) => {
+      setModelRoot(res.model_root);
+      setModelFiles(res.files);
+    }).catch(() => {/* ignore */});
+  }, []);
+
+  // ── Load prompt history ───────────────────────────────────────────
+  useEffect(() => {
+    setPromptHistory(loadPromptHistory());
+  }, []);
+
+  // ── Ctrl+Enter to generate ────────────────────────────────────────
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && mode === "text2image") {
+        t2iFormRef.current?.requestSubmit();
+      }
+    }
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [mode]);
 
   // ── Save feedback auto-clear ──────────────────────────────────────
   useEffect(() => {
@@ -151,20 +257,6 @@ export function GeneratePage() {
     const id = window.setTimeout(() => setSaveFeedback("idle"), 2500);
     return () => window.clearTimeout(id);
   }, [saveFeedback]);
-
-  // ── Poll SDXL result ──────────────────────────────────────────────
-  useEffect(() => {
-    if (!result || (result.status !== "pending" && result.status !== "running")) return;
-    const id = window.setInterval(async () => {
-      try {
-        const next = await api.getGeneration(result.generation_id);
-        setResult(next);
-        if (next.status === "completed") setIsGenerating(false);
-        if (next.status === "failed") { setIsGenerating(false); setError(next.error ?? "Generation failed."); }
-      } catch (e) { console.error(e); }
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [result]);
 
   // ── Poll running pipeline steps ───────────────────────────────────
   const pollingStep = steps.find((s) => s.result && (s.result.status === "pending" || s.result.status === "running")) ?? null;
@@ -233,17 +325,31 @@ export function GeneratePage() {
   // ── Actions ───────────────────────────────────────────────────────
   async function handleGenerate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsGenerating(true);
+    const hasActiveGeneration = result != null && (result.status === "pending" || result.status === "running");
+    setIsSubmittingGeneration(true);
     setError(null);
-    setResult(null);
-    setSteps((cur) => cur.map((s) => ({ ...s, result: null, error: null, is_running: false })));
+    if (!hasActiveGeneration) {
+      setResult(null);
+      setSteps((cur) => cur.map((s) => ({ ...s, result: null, error: null, is_running: false })));
+    }
     try {
+      pushPromptHistory(form.positive_prompt);
+      setPromptHistory(loadPromptHistory());
       const response = await api.generateImage(form);
       setResult(response);
-      setWorkerStatus(await api.getGenerateWorkerStatus());
+      setCurrentGenerationId(response.generation_id);
+      const [worker, queue] = await Promise.all([
+        api.getGenerateWorkerStatus(),
+        api.getGenerateQueueStatus(),
+      ]);
+      setWorkerStatus(worker);
+      setQueueStatus(queue);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Generation failed. Check the model path and backend logs.");
-      setIsGenerating(false);
+      const msg = e instanceof ApiError ? e.message : "Generation failed. Check the model path and backend logs.";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setIsSubmittingGeneration(false);
     }
   }
 
@@ -272,12 +378,19 @@ export function GeneratePage() {
       seed: config.seed,
       batch_count: cur.batch_count,
       sampler: cur.sampler,
-      architecture: cur.architecture,
+      architecture: config.architecture ?? "sdxl",
       chroma_pipeline_repo: cur.chroma_pipeline_repo,
     }));
     setConfigName(config.name);
     setCanvasPreset(detectCanvasPreset(config.width, config.height));
     setSaveFeedback("idle");
+  }
+
+  function applyImportedRequest(payload: GenerateImageRequest) {
+    setForm(payload);
+    setCanvasPreset(detectCanvasPreset(payload.width, payload.height));
+    setSaveFeedback("idle");
+    setError(null);
   }
 
   async function handleSaveConfig() {
@@ -288,10 +401,12 @@ export function GeneratePage() {
       setSavedConfigs(await api.getGenerateConfigs());
       setSaveFeedback("saved");
       setError(null);
+      toast.success(`Config "${configName.trim()}" saved`);
     } catch (e) {
       console.error(e);
       setError("Failed to save config.");
       setSaveFeedback("error");
+      toast.error("Failed to save config.");
     } finally {
       setIsSavingConfig(false);
     }
@@ -331,17 +446,132 @@ export function GeneratePage() {
     updateForm((cur) => ({ ...cur, width: preset.width ?? cur.width, height: preset.height ?? cur.height }));
   }
 
+  async function performUnload(trainingJob?: Job | null) {
+    setIsUnloading(true);
+    try {
+      if (trainingJob) {
+        await api.cancelJob(trainingJob.id);
+      }
+      await api.unloadGenerateWorkers();
+      setWorkerStatus(await api.getGenerateWorkerStatus());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to unload models.");
+    } finally {
+      setIsUnloading(false);
+      setTrainingJobToConfirm(null);
+    }
+  }
+
+  async function handleUnloadClick() {
+    try {
+      const jobs = await api.getJobs();
+      const runningJob = jobs.find((job) => job.status === "running") ?? null;
+      if (runningJob) {
+        setTrainingJobToConfirm(runningJob);
+        return;
+      }
+      await performUnload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to check training status.");
+    }
+  }
+
+  async function handleRemoveLatestQueuedGeneration() {
+    try {
+      await api.removeLatestQueuedGeneration();
+      setQueueStatus(await api.getGenerateQueueStatus());
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to remove queued generation.");
+    }
+  }
+
+  async function handleImportDrop(file: File) {
+    try {
+      const result = await api.importGenerateMetadata(file);
+      if (result.mode === "image-edit") {
+        setMode("image-edit");
+        setImageEditImport(result.image_edit);
+      } else {
+        setMode("text2image");
+        applyImportedRequest(result.text2image);
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "No metadata found.");
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────
   return (
+    <div
+      className={`generate-outer${isImportDragOver ? " drag-over" : ""}`}
+      onDragOver={(event) => { event.preventDefault(); setIsImportDragOver(true); }}
+      onDragLeave={(event) => {
+        event.preventDefault();
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setIsImportDragOver(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setIsImportDragOver(false);
+        const file = event.dataTransfer.files?.[0];
+        if (file) void handleImportDrop(file);
+      }}
+    >
+      {isImportDragOver ? (
+        <div className="generate-import-overlay">
+          <div className="generate-import-label">Drop image to import generate metadata</div>
+        </div>
+      ) : null}
+      {/* Mode tabs */}
+      <div className="generate-mode-tabs">
+        <button
+          type="button"
+          className={`generate-tab-pill${mode === "text2image" ? " active" : ""}`}
+          onClick={() => setMode("text2image")}
+        >
+          Text2Image
+        </button>
+        <button
+          type="button"
+          className={`generate-tab-pill${mode === "image-edit" ? " active" : ""}`}
+          onClick={() => setMode("image-edit")}
+        >
+          Image Edit
+        </button>
+        <button
+          type="button"
+          className="generate-tab-pill disabled"
+          disabled
+        >
+          Coming Soon
+        </button>
+      </div>
+
+      {mode === "image-edit" ? (
+        <ImageEditPanel
+          initialImport={imageEditImport}
+          onImportConsumed={() => setImageEditImport(null)}
+          initialRefUrls={imageEditInitialRefs}
+          onRefUrlsConsumed={() => setImageEditInitialRefs(null)}
+        />
+      ) : (
     <div className="split-page generate-page">
       {/* Left rail */}
       <div className="generate-rail">
-        <form className="generate-rail-form" onSubmit={handleGenerate}>
+        <form ref={t2iFormRef} className="generate-rail-form" onSubmit={handleGenerate}>
           <label>
             <span>Model Architecture</span>
             <select
               value={form.architecture}
-              onChange={(e) => updateForm({ ...form, architecture: e.target.value })}
+              onChange={(e) => {
+                const arch = e.target.value;
+                updateForm((cur) => ({
+                  ...cur,
+                  architecture: arch,
+                  cfg_scale: arch === "chroma" ? 3.0 : cur.cfg_scale === 3.0 ? 7.0 : cur.cfg_scale,
+                }));
+              }}
             >
               <option value="sdxl">SDXL</option>
               <option value="chroma">Chroma</option>
@@ -359,19 +589,27 @@ export function GeneratePage() {
             namePlaceholder="My Portrait Setup"
           />
 
-          {workerStatus ? <WorkerStatusCard status={workerStatus} /> : null}
+          {workerStatus ? (
+            <WorkerStatusCard
+              status={workerStatus}
+              architecture={form.architecture}
+              queueStatus={queueStatus}
+              isUnloading={isUnloading}
+              onUnload={() => void handleUnloadClick()}
+              onRemoveQueued={() => void handleRemoveLatestQueuedGeneration()}
+            />
+          ) : null}
 
           <CollapsibleSection title={form.architecture === "chroma" ? "Model" : "Model & LoRAs"}>
             <label>
               <span>{form.architecture === "chroma" ? "Transformer Checkpoint" : "Model Path"}</span>
-              <input
+              <PathCombobox
                 value={form.model_path}
-                onChange={(e) => updateForm({ ...form, model_path: e.target.value })}
-                placeholder={
-                  form.architecture === "chroma"
-                    ? "/path/to/chroma.safetensors"
-                    : "/path/to/model.safetensors"
-                }
+                root={modelRoot}
+                files={modelFiles}
+                onChange={(p) => updateForm({ ...form, model_path: p })}
+                placeholder={form.architecture === "chroma" ? "/path/to/chroma.safetensors" : "/path/to/model.safetensors"}
+                noFilesPlaceholder="No model root configured"
               />
             </label>
             {form.architecture !== "chroma" ? (
@@ -391,13 +629,22 @@ export function GeneratePage() {
                 ))}
               </select>
             </label>
-            <div className="generate-grid">
-              <label>
+            <div className="canvas-dimension-row">
+              <label className="canvas-dimension-label">
                 <span>Width</span>
                 <input type="number" min={64} step={8} value={form.width} disabled={canvasPreset !== "manual"}
                   onChange={(e) => updateForm({ ...form, width: Number(e.target.value) })} />
               </label>
-              <label>
+              <button
+                type="button"
+                className="dimension-swap-btn"
+                title="Swap width and height"
+                onClick={() => {
+                  setCanvasPreset("manual");
+                  updateForm((cur) => ({ ...cur, width: cur.height, height: cur.width }));
+                }}
+              >⇄</button>
+              <label className="canvas-dimension-label">
                 <span>Height</span>
                 <input type="number" min={64} step={8} value={form.height} disabled={canvasPreset !== "manual"}
                   onChange={(e) => updateForm({ ...form, height: Number(e.target.value) })} />
@@ -487,11 +734,38 @@ export function GeneratePage() {
           </CollapsibleSection>
 
           <CollapsibleSection title="Prompts">
-            <label>
-              <span>Positive Prompt</span>
+            <div>
+              <div className="prompt-history-header">
+                <span>Positive Prompt</span>
+                {promptHistory.length > 0 ? (
+                  <div className="prompt-history-wrap">
+                    <button
+                      type="button"
+                      className="prompt-history-btn"
+                      title="Prompt history"
+                      onClick={() => setShowPromptHistory((v) => !v)}
+                    >⏱</button>
+                    {showPromptHistory ? (
+                      <div className="prompt-history-dropdown">
+                        {promptHistory.map((p, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            className="prompt-history-option"
+                            onClick={() => {
+                              updateForm({ ...form, positive_prompt: p });
+                              setShowPromptHistory(false);
+                            }}
+                          >{p}</button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               <textarea rows={6} value={form.positive_prompt} placeholder="Describe what you want to generate..."
                 onChange={(e) => updateForm({ ...form, positive_prompt: e.target.value })} />
-            </label>
+            </div>
             <div className="section-inline-header">
               <label className="modal-toggle-row">
                 <span className="modal-label" style={{ marginBottom: 0 }}>Prompt Enhance</span>
@@ -510,8 +784,8 @@ export function GeneratePage() {
 
           {error ? <div className="error-banner">{error}</div> : null}
 
-          <button className="primary-button" type="submit" disabled={isGenerating}>
-            {isGenerating ? "Generating..." : "Generate"}
+          <button className="primary-button" type="submit">
+            {isSubmittingGeneration ? "Queueing..." : isGenerating ? "Generate Again" : "Generate"}
           </button>
         </form>
       </div>
@@ -526,6 +800,8 @@ export function GeneratePage() {
           captionStyle={captionStyle}
           captionText={captionText}
           captionTop={captionTop}
+          architecture={form.architecture}
+          onUseSeed={(seed) => updateForm((cur) => ({ ...cur, seed }))}
         />
 
         {steps.map((step, index) => (
@@ -556,6 +832,21 @@ export function GeneratePage() {
         >
           ＋ Add Step
         </button>
+
+        <section className="section-card generate-gallery-panel">
+          <div className="section-header">
+            <div>
+              <div className="eyebrow">Library</div>
+              <h2>Gallery</h2>
+            </div>
+          </div>
+          <GalleryViewer
+            onSendToImageEdit={(url) => {
+              setMode("image-edit");
+              setImageEditInitialRefs([url]);
+            }}
+          />
+        </section>
       </div>
 
       {showPromptSettings ? (
@@ -569,6 +860,33 @@ export function GeneratePage() {
           }}
         />
       ) : null}
+
+      {trainingJobToConfirm ? (
+        <div className="modal-backdrop" onClick={() => setTrainingJobToConfirm(null)}>
+          <div className="modal-box" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <span className="eyebrow">Unload Models</span>
+              <h3>Confirm Unload</h3>
+            </div>
+            <div className="modal-field">
+              <span className="modal-hint generate-unload-warning">
+                Training job: {trainingJobToConfirm.name} is running. Unloading models will end training. Are you sure you want to proceed?
+              </span>
+            </div>
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setTrainingJobToConfirm(null)}>
+                No
+              </button>
+              <button className="danger-button" type="button" disabled={isUnloading} onClick={() => void performUnload(trainingJobToConfirm)}>
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+      )}
     </div>
   );
 }
+

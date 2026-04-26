@@ -1,3 +1,13 @@
+const STAGE_LABELS: Record<string, string> = {
+  loading_transformer: "Loading transformer...",
+  loading_pipeline: "Loading pipeline...",
+  loading_t5: "Loading text encoder...",
+  encoding_prompt: "Encoding prompt...",
+  denoising: "Running inference...",
+  saving: "Saving image...",
+  freeing_vram: "Freeing VRAM...",
+};
+
 interface GenerationProgressProps {
   status: "pending" | "running" | "completed" | "failed";
   currentStep: number;
@@ -25,6 +35,7 @@ export function GenerationProgress({
 }: GenerationProgressProps) {
   const pct = totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0;
   const showBatch = batchTotal !== undefined && batchTotal > 1;
+  const stageLabel = stage ? (STAGE_LABELS[stage] ?? stage) : null;
 
   return (
     <div className="generation-status">
@@ -43,7 +54,7 @@ export function GenerationProgress({
         <span>
           {rateValue !== null && rateUnit
             ? `${rateValue.toFixed(2)} ${rateUnit}`
-            : stage ?? "Starting..."}
+            : stageLabel ?? "Starting..."}
         </span>
         {width && height ? <span>{width} × {height}</span> : null}
       </div>

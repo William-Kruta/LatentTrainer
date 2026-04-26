@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Generate Page Layout</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "IBM Plex Sans","Segoe UI",sans-serif; background: #111; color: #e2e8f0; padding: 24px; }
+  h1 { font-size: 1.1rem; font-weight: 700; color: #a78bfa; margin-bottom: 4px; }
+  .subtitle { font-size: 0.82rem; color: #64748b; margin-bottom: 20px; }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card {
+    background: #1a1a1a; border: 2px solid #2d2d2d; border-radius: 10px;
+    overflow: hidden; cursor: pointer; transition: border-color 150ms;
+  }
+  .card:hover { border-color: #7c6dbf; }
+  .card.selected { border-color: #a78bfa; box-shadow: 0 0 0 2px rgba(167,139,250,0.2); }
+  .card-meta { padding: 10px 14px 4px; display: flex; gap: 10px; align-items: baseline; }
+  .card-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #a78bfa; }
+  .card-title { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; }
+  .card-desc { padding: 0 14px 12px; font-size: 0.75rem; color: #64748b; line-height: 1.5; margin-top: 2px; }
+
+  /* ── Mockup shell ── */
+  .mock { margin: 0 12px 12px; border-radius: 7px; overflow: hidden; border: 1px solid #2d2d2d; font-size: 0; }
+  .mock-topbar { display: flex; align-items: center; gap: 5px; background: #1f1f1f; padding: 5px 8px; border-bottom: 1px solid #2d2d2d; font-size: 0.6rem; color: #4a5568; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; }
+  .mock-body { display: flex; background: #0d0d0d; min-height: 260px; }
+
+  /* panels */
+  .m-rail { background: #141414; border-right: 1px solid #2d2d2d; padding: 7px; display: flex; flex-direction: column; gap: 5px; }
+  .m-rail.w120 { width: 120px; flex-shrink: 0; }
+  .m-rail.w100 { width: 100px; flex-shrink: 0; }
+  .m-center { flex: 1; padding: 7px; display: flex; flex-direction: column; gap: 5px; border-right: 1px solid #2d2d2d; }
+  .m-preview { flex: 1; padding: 7px; display: flex; flex-direction: column; gap: 5px; }
+  .m-preview.w160 { width: 160px; flex-shrink: 0; }
+
+  /* shared atoms */
+  .m-ey { font-size: 0.52rem; letter-spacing: 0.09em; text-transform: uppercase; color: #a78bfa; font-weight: 700; font-size: 0; line-height: 0; }
+  .m-label { display: block; font-size: 0.55rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px; }
+  .m-input { height: 14px; border-radius: 3px; background: #2d2d2d; border: 1px solid #3d3d3d; width: 100%; margin-bottom: 4px; }
+  .m-input.tall { height: 22px; }
+  .m-input.sm { height: 12px; }
+  .m-btn { height: 14px; border-radius: 3px; background: #2d2d2d; border: 1px solid #3d3d3d; width: 100%; margin-bottom: 3px; }
+  .m-btn.accent { background: #a78bfa; border-color: #a78bfa; }
+  .m-section-card { background: #1e1e1e; border: 1px solid #2d2d2d; border-radius: 4px; padding: 5px; margin-bottom: 4px; }
+  .m-section-title { font-size: 0.52rem; font-weight: 700; color: #94a3b8; margin-bottom: 3px; }
+  .m-row { display: flex; gap: 3px; }
+  .m-spacer { flex: 1; }
+  .m-pill { height: 10px; border-radius: 10px; background: rgba(167,139,250,0.2); border: 1px solid rgba(167,139,250,0.3); width: 40px; }
+  .m-pill.green { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); }
+  .m-fn-card { background: #1a1a1a; border: 1px solid #3d3d3d; border-radius: 4px; padding: 5px; margin-bottom: 4px; }
+  .m-fn-header { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; }
+  .m-fn-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .m-fn-dot.sdxl { background: #a78bfa; }
+  .m-fn-dot.flux { background: #38bdf8; }
+  .m-fn-dot.add { background: #3d3d3d; border: 1px dashed #555; }
+  .m-fn-name { font-size: 0.52rem; color: #94a3b8; font-weight: 600; flex: 1; }
+  .m-toggle { width: 18px; height: 9px; border-radius: 5px; background: #2d2d2d; border: 1px solid #3d3d3d; flex-shrink: 0; }
+  .m-toggle.on { background: #a78bfa; border-color: #a78bfa; }
+  .m-toggle.on-green { background: #22c55e; border-color: #22c55e; }
+  .m-fn-toggles { display: flex; gap: 3px; align-items: center; }
+  .m-fn-toggle-label { font-size: 0.45rem; color: #4a5568; }
+  .m-add-fn { height: 13px; border-radius: 3px; background: transparent; border: 1px dashed #3d3d3d; width: 100%; margin-top: 2px; }
+  .m-connector { width: 1px; height: 6px; background: #3d3d3d; margin: 0 auto 2px; }
+  .m-preview-img { flex: 1; border-radius: 4px; background: radial-gradient(circle at 30% 30%, rgba(167,139,250,0.15), transparent 60%), linear-gradient(135deg,#0d1020,#050508); border: 1px solid #2d2d2d; min-height: 80px; }
+  .m-meter { height: 3px; border-radius: 2px; background: #2d2d2d; margin-bottom: 3px; overflow: hidden; }
+  .m-meter-fill { height: 100%; width: 60%; background: linear-gradient(90deg,#a78bfa,#7c3aed); border-radius: 2px; }
+  .m-chain-arrow { text-align: center; font-size: 0.5rem; color: #3d3d3d; margin: 1px 0; }
+</style>
+<script>
+function toggleSelect(card) {
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  if (window.recordChoice) recordChoice(card.dataset.choice, card.querySelector('.card-title').textContent);
+}
+</script>
+</head>
+<body>
+<h1>Generate page layout — where does the function chain live?</h1>
+<p class="subtitle">All options use collapsible section cards for the generate form. Click to choose.</p>
+
+<div class="cards">
+
+  <!-- Option A: Left rail = form sections, center = function chain, right = preview -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-meta"><span class="card-label">Option A</span><span class="card-title">Three-column: Form · Chain · Preview</span></div>
+    <div class="card-desc">Generate config lives in the left rail (collapsed sections). The pipeline/chain occupies a center column. Preview stays right. Clean separation of concerns.</div>
+    <div class="mock">
+      <div class="mock-topbar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span style="font-size:0.6rem;margin-left:4px">Generate</span></div>
+      <div class="mock-body">
+        <!-- Left rail: form sections -->
+        <div class="m-rail w120">
+          <div class="m-section-card">
+            <div class="m-section-title">⚙ Model</div>
+            <div class="m-input sm"></div>
+            <div class="m-row"><div class="m-input sm" style="width:50%"></div><div style="width:4px"></div><div class="m-input sm" style="width:50%"></div></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">🖼 Canvas</div>
+            <div class="m-input sm"></div>
+            <div class="m-row"><div class="m-input sm" style="width:50%"></div><div style="width:4px"></div><div class="m-input sm" style="width:50%"></div></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">✦ Prompts</div>
+            <div class="m-input tall"></div>
+            <div class="m-input"></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">↑ LoRAs</div>
+            <div class="m-btn"></div>
+          </div>
+          <div class="m-btn accent"></div>
+        </div>
+
+        <!-- Center: pipeline chain -->
+        <div class="m-center">
+          <div class="m-section-title" style="font-size:0.55rem;color:#64748b;text-transform:uppercase;letter-spacing:0.08em">Pipeline</div>
+          <!-- SDXL step -->
+          <div class="m-fn-card" style="border-color:#a78bfa44">
+            <div class="m-fn-header">
+              <div class="m-fn-dot sdxl"></div>
+              <span class="m-fn-name">SDXL Generate</span>
+            </div>
+            <div class="m-fn-toggles">
+              <span class="m-fn-toggle-label">Auto</span><div class="m-toggle on"></div>
+              <span class="m-fn-toggle-label" style="margin-left:4px">Save</span><div class="m-toggle on-green"></div>
+            </div>
+          </div>
+          <div class="m-connector"></div>
+          <!-- Flux step -->
+          <div class="m-fn-card" style="border-color:#38bdf844">
+            <div class="m-fn-header">
+              <div class="m-fn-dot flux"></div>
+              <span class="m-fn-name">Image Edit (Flux)</span>
+            </div>
+            <div class="m-input sm"></div>
+            <div class="m-fn-toggles">
+              <span class="m-fn-toggle-label">Auto</span><div class="m-toggle on"></div>
+              <span class="m-fn-toggle-label" style="margin-left:4px">Save</span><div class="m-toggle"></div>
+            </div>
+          </div>
+          <div class="m-connector"></div>
+          <!-- Add function -->
+          <div class="m-add-fn"></div>
+          <div class="m-spacer"></div>
+          <div class="m-meter"><div class="m-meter-fill"></div></div>
+        </div>
+
+        <!-- Right: preview -->
+        <div class="m-preview">
+          <div class="m-preview-img"></div>
+          <div class="m-input sm"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B: Left rail = form + chain stacked, right = preview -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-meta"><span class="card-label">Option B</span><span class="card-title">Two-column: Form+Chain · Preview</span></div>
+    <div class="card-desc">Generate config sections and the function chain are stacked in the left rail, scrollable. Preview panel takes the majority of the screen. Simpler layout, more preview space.</div>
+    <div class="mock">
+      <div class="mock-topbar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span style="font-size:0.6rem;margin-left:4px">Generate</span></div>
+      <div class="mock-body">
+        <!-- Left rail: form + chain stacked -->
+        <div class="m-rail w120">
+          <div class="m-section-card">
+            <div class="m-section-title">⚙ Model &amp; Params</div>
+            <div class="m-input sm"></div>
+            <div class="m-row"><div class="m-input sm" style="width:50%"></div><div style="width:4px"></div><div class="m-input sm" style="width:50%"></div></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">✦ Prompts</div>
+            <div class="m-input tall"></div>
+          </div>
+          <div class="m-btn accent"></div>
+
+          <div class="m-section-title" style="font-size:0.52rem;color:#64748b;text-transform:uppercase;letter-spacing:0.07em;margin-top:4px">Pipeline</div>
+          <div class="m-fn-card" style="border-color:#a78bfa44">
+            <div class="m-fn-header"><div class="m-fn-dot sdxl"></div><span class="m-fn-name">SDXL</span></div>
+            <div class="m-fn-toggles"><span class="m-fn-toggle-label">Auto</span><div class="m-toggle on"></div><span class="m-fn-toggle-label" style="margin-left:3px">Save</span><div class="m-toggle on-green"></div></div>
+          </div>
+          <div class="m-chain-arrow">↓</div>
+          <div class="m-fn-card" style="border-color:#38bdf844">
+            <div class="m-fn-header"><div class="m-fn-dot flux"></div><span class="m-fn-name">Img Edit</span></div>
+            <div class="m-input sm"></div>
+            <div class="m-fn-toggles"><span class="m-fn-toggle-label">Auto</span><div class="m-toggle on"></div><span class="m-fn-toggle-label" style="margin-left:3px">Save</span><div class="m-toggle"></div></div>
+          </div>
+          <div class="m-add-fn"></div>
+        </div>
+
+        <!-- Right: big preview -->
+        <div class="m-preview">
+          <div class="m-preview-img" style="flex:2"></div>
+          <div class="m-meter"><div class="m-meter-fill"></div></div>
+          <div class="m-section-card">
+            <div class="m-section-title">Image Edit Output</div>
+            <div class="m-preview-img" style="min-height:40px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C: Two-column, chain is tabs at top of preview -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-meta"><span class="card-label">Option C</span><span class="card-title">Form left · Chain tabs across preview top</span></div>
+    <div class="card-desc">Generate form in the left rail. The preview area has a pipeline breadcrumb/tab bar across the top showing each step. Clicking a step shows its output. Functions are added via a "+" tab.</div>
+    <div class="mock">
+      <div class="mock-topbar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span style="font-size:0.6rem;margin-left:4px">Generate</span></div>
+      <div class="mock-body">
+        <!-- Left rail: form -->
+        <div class="m-rail w100">
+          <div class="m-section-card">
+            <div class="m-section-title">⚙ Model</div>
+            <div class="m-input sm"></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">🖼 Canvas</div>
+            <div class="m-input sm"></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">✦ Prompts</div>
+            <div class="m-input tall"></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">↑ LoRAs</div>
+            <div class="m-btn"></div>
+          </div>
+          <div class="m-btn accent"></div>
+        </div>
+
+        <!-- Right: pipeline tabs + preview -->
+        <div class="m-preview" style="flex-direction:column">
+          <!-- Pipeline tab bar -->
+          <div style="display:flex;gap:3px;margin-bottom:5px;align-items:center">
+            <div style="background:#a78bfa22;border:1px solid #a78bfa44;border-radius:3px;padding:2px 6px;font-size:0.52rem;color:#a78bfa;font-weight:600">SDXL ✓</div>
+            <div style="font-size:0.55rem;color:#3d3d3d">→</div>
+            <div style="background:#38bdf822;border:1px solid #38bdf844;border-radius:3px;padding:2px 6px;font-size:0.52rem;color:#38bdf8;font-weight:600">Img Edit ●</div>
+            <div style="font-size:0.55rem;color:#3d3d3d">→</div>
+            <div style="background:transparent;border:1px dashed #3d3d3d;border-radius:3px;padding:2px 6px;font-size:0.52rem;color:#3d3d3d">+ Add</div>
+            <div style="flex:1"></div>
+            <div style="font-size:0.52rem;color:#4a5568">Auto</div><div class="m-toggle on" style="width:14px;height:7px"></div>
+            <div style="font-size:0.52rem;color:#4a5568;margin-left:3px">Save</div><div class="m-toggle on-green" style="width:14px;height:7px"></div>
+          </div>
+          <!-- Active step config inline -->
+          <div class="m-section-card" style="margin-bottom:5px">
+            <div class="m-section-title">Image Edit config</div>
+            <div class="m-input sm"></div>
+            <div class="m-row"><div class="m-input sm" style="width:50%"></div><div style="width:4px"></div><div class="m-btn" style="width:50%;height:12px"></div></div>
+          </div>
+          <!-- Preview images -->
+          <div style="display:flex;gap:5px;flex:1">
+            <div class="m-preview-img" style="flex:1"></div>
+            <div class="m-preview-img" style="flex:1"></div>
+          </div>
+          <div class="m-meter" style="margin-top:4px"><div class="m-meter-fill"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option D: Two-column, chain below generate in main panel -->
+  <div class="card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="card-meta"><span class="card-label">Option D</span><span class="card-title">Form left · Chain + Previews stacked right</span></div>
+    <div class="card-desc">Generate config in the left rail. The right panel shows each pipeline step as a card stacked vertically — each card has its output image, config, and toggles. Scroll to see the full chain.</div>
+    <div class="mock">
+      <div class="mock-topbar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span style="font-size:0.6rem;margin-left:4px">Generate</span></div>
+      <div class="mock-body">
+        <!-- Left rail -->
+        <div class="m-rail w100">
+          <div class="m-section-card">
+            <div class="m-section-title">⚙ Model</div>
+            <div class="m-input sm"></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">🖼 Canvas</div>
+            <div class="m-input sm"></div>
+          </div>
+          <div class="m-section-card">
+            <div class="m-section-title">✦ Prompts</div>
+            <div class="m-input tall"></div>
+          </div>
+          <div class="m-btn accent"></div>
+        </div>
+
+        <!-- Right: pipeline step cards -->
+        <div class="m-preview" style="flex-direction:column;gap:5px">
+          <!-- Step 1 card -->
+          <div class="m-section-card" style="display:flex;gap:5px;align-items:flex-start">
+            <div class="m-preview-img" style="width:60px;min-height:50px;flex-shrink:0"></div>
+            <div style="flex:1">
+              <div class="m-fn-header"><div class="m-fn-dot sdxl"></div><span class="m-fn-name" style="font-size:0.55rem">SDXL Generate</span></div>
+              <div class="m-fn-toggles"><span class="m-fn-toggle-label">Auto</span><div class="m-toggle on"></div><span class="m-fn-toggle-label" style="margin-left:3px">Save</span><div class="m-toggle on-green"></div></div>
+              <div class="m-meter" style="margin-top:3px"><div class="m-meter-fill" style="width:100%"></div></div>
+            </div>
+          </div>
+          <div class="m-chain-arrow">↓</div>
+          <!-- Step 2 card -->
+          <div class="m-section-card" style="display:flex;gap:5px;align-items:flex-start">
+            <div class="m-preview-img" style="width:60px;min-height:50px;flex-shrink:0;background:radial-gradient(circle at 70% 70%,rgba(56,189,248,0.15),transparent 60%),linear-gradient(135deg,#0d1020,#050508)"></div>
+            <div style="flex:1">
+              <div class="m-fn-header"><div class="m-fn-dot flux"></div><span class="m-fn-name" style="font-size:0.55rem">Image Edit</span></div>
+              <div class="m-input sm"></div>
+              <div class="m-fn-toggles"><span class="m-fn-toggle-label">Auto</span><div class="m-toggle on"></div><span class="m-fn-toggle-label" style="margin-left:3px">Save</span><div class="m-toggle"></div></div>
+              <div class="m-meter" style="margin-top:3px"><div class="m-meter-fill" style="width:60%"></div></div>
+            </div>
+          </div>
+          <!-- Add step -->
+          <div class="m-add-fn" style="height:16px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+
+# Dataspecific Directories
+data/ 
+datasets/
+docs/
+generations/
+outputs/
+uploads/
+
+# LLM 
+.codex 
+.claude

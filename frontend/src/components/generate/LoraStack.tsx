@@ -1,4 +1,5 @@
-import type { GenerateLoraSpec } from "../../lib/api";
+import { useEffect, useState } from "react";
+import { api, type GenerateLoraSpec } from "../../lib/api";
 import { LoraCard } from "./LoraCard";
 
 interface LoraStackProps {
@@ -7,6 +8,16 @@ interface LoraStackProps {
 }
 
 export function LoraStack({ loras, onChange }: LoraStackProps) {
+  const [loraRoot, setLoraRoot] = useState("");
+  const [loraFiles, setLoraFiles] = useState<string[]>([]);
+
+  useEffect(() => {
+    api.getLoraFiles().then((res) => {
+      setLoraRoot(res.lora_root);
+      setLoraFiles(res.files);
+    }).catch(() => {/* ignore */});
+  }, []);
+
   function add() {
     onChange([...loras, { path: "", strength: 1.0 }]);
   }
@@ -34,6 +45,8 @@ export function LoraStack({ loras, onChange }: LoraStackProps) {
               key={i}
               lora={lora}
               index={i}
+              loraRoot={loraRoot}
+              loraFiles={loraFiles}
               onUpdate={(next) => update(i, next)}
               onRemove={() => remove(i)}
             />
