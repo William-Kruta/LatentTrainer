@@ -8,25 +8,29 @@ import { GalleryPage } from "./pages/GalleryPage";
 import { GeneratePage } from "./pages/GeneratePage";
 import { HomePage } from "./pages/HomePage";
 import { MediaPage } from "./pages/MediaPage";
+import { ChatPage } from "./pages/ChatPage";
+import { HealthPage } from "./pages/HealthPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TrainingPage } from "./pages/TrainingPage";
 
 export function App() {
   return (
     <ToastProvider>
-    <AppShell>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/training" element={<TrainingPage />} />
-        <Route path="/datasets" element={<DatasetsPage />} />
-        <Route path="/configs" element={<ConfigsPage />} />
-        <Route path="/generate" element={<GeneratePage />} />
-        <Route path="/media" element={<MediaPage />} />
-        <Route path="/gallery" element={<GalleryPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AppShell>
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/training" element={<TrainingPage />} />
+          <Route path="/datasets" element={<DatasetsPage />} />
+          <Route path="/configs" element={<ConfigsPage />} />
+          <Route path="/generate" element={<GeneratePage />} />
+          <Route path="/media" element={<MediaPage />} />
+          <Route path="/gallery" element={<GalleryPage />} />
+          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/health" element={<HealthPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppShell>
     </ToastProvider>
   );
 }

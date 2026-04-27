@@ -202,6 +202,13 @@ def get_ltx_job(job_id: str) -> dict:
     return dict(job)
 
 
+@router.get("/jobs")
+def list_ltx_jobs() -> list[dict]:
+    with _jobs_lock:
+        jobs = [dict(job) for job in _jobs.values()]
+    return sorted(jobs, key=lambda job: job.get("job_id", ""), reverse=True)
+
+
 @router.get("/videos/{job_id}/{filename}")
 def get_ltx_video(job_id: str, filename: str) -> FileResponse:
     video_path = (LTX_OUTPUT_DIR / job_id / filename).resolve()

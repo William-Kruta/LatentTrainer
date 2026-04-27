@@ -19,6 +19,8 @@ from app.api.jobs import router as jobs_router
 from app.api.media import router as media_router
 from app.api.settings import router as settings_router
 from app.api.system import router as system_router
+from app.api.chat import router as chat_router
+from app.api.swap import router as swap_router
 from app.core.seed import seed_data
 from app.db import BASE_DIR, create_db_and_tables, engine
 
@@ -42,6 +44,8 @@ app.include_router(jobs_router)
 app.include_router(media_router)
 app.include_router(settings_router)
 app.include_router(system_router)
+app.include_router(chat_router)
+app.include_router(swap_router)
 
 STATIC_DIR = BASE_DIR / "app" / "static"
 

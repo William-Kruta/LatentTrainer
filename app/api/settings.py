@@ -36,6 +36,8 @@ def update_settings(
     settings.lora_root = body.lora_root
     settings.output_root = body.output_root
     settings.dataset_root = body.dataset_root
+    settings.llama_url = body.llama_url
+    settings.controlnet_root = body.controlnet_root
     session.add(settings)
     session.commit()
     session.refresh(settings)
@@ -74,6 +76,13 @@ def _walk_model_files(root_str: str) -> tuple[str, list[str]]:
             if path.is_file() and path.suffix.lower() in _WEIGHT_EXTENSIONS
         )
     return root_str, sorted(files)
+
+
+@router.get("/controlnets")
+def list_controlnets(session: Session = Depends(get_session)) -> dict:
+    settings = _get_or_create(session)
+    root, files = _walk_files(settings.controlnet_root)
+    return {"controlnet_root": root, "files": files}
 
 
 @router.get("/loras")

@@ -92,6 +92,10 @@ def _run_image_edit_job(
     loras_json: str,
     extra_image_bytes: bytes | None,
     extra_image_filename: str | None,
+    cpu_offload: bool = False,
+    sequential_cpu_offload: bool = False,
+    vae_tiling: bool = False,
+    vae_slicing: bool = False,
 ) -> None:
     source_image_path = _resolve_generation_image_path(source_generation_id)
     output_dir = FUNCTION_OUTPUTS_DIR / source_generation_id / function_run_id
@@ -142,6 +146,10 @@ def _run_image_edit_job(
             steps=steps,
             loras=[lora.model_dump() for lora in loras],
             on_event=on_event,
+            cpu_offload=cpu_offload,
+            sequential_cpu_offload=sequential_cpu_offload,
+            vae_tiling=vae_tiling,
+            vae_slicing=vae_slicing,
         )
         _update_function_run(
             function_run_id,
@@ -171,6 +179,10 @@ async def run_image_edit_function(
     height: int = Form(...),
     steps: int = Form(4),
     loras_json: str = Form("[]"),
+    cpu_offload: bool = Form(False),
+    sequential_cpu_offload: bool = Form(False),
+    vae_tiling: bool = Form(False),
+    vae_slicing: bool = Form(False),
     extra_image: UploadFile | None = File(default=None),
 ) -> ImageEditResponse:
     function_run_id = uuid.uuid4().hex
@@ -204,6 +216,10 @@ async def run_image_edit_function(
             "loras_json": loras_json,
             "extra_image_bytes": extra_image_bytes,
             "extra_image_filename": extra_image_filename,
+            "cpu_offload": cpu_offload,
+            "sequential_cpu_offload": sequential_cpu_offload,
+            "vae_tiling": vae_tiling,
+            "vae_slicing": vae_slicing,
         },
         daemon=True,
     )

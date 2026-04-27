@@ -47,11 +47,14 @@ export function useGenerationState({
     };
   }, [currentGenerationId, setError]);
 
-  async function submitGeneration(payload: GenerateImageRequest): Promise<GenerateImageResponse | null> {
+  async function submitGeneration(
+    payload: GenerateImageRequest,
+    generateFn?: (p: GenerateImageRequest) => Promise<GenerateImageResponse>,
+  ): Promise<GenerateImageResponse | null> {
     setIsSubmittingGeneration(true);
     setError?.(null);
     try {
-      const response = await api.generateImage(payload);
+      const response = await (generateFn ? generateFn(payload) : api.generateImage(payload));
       setResult(response);
       setCurrentGenerationId(response.generation_id);
       await refreshWorkerStatus?.();

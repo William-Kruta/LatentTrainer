@@ -41,6 +41,13 @@ def _run_schema_migrations() -> None:
                     text("ALTER TABLE dataset ADD COLUMN caption_count INTEGER NOT NULL DEFAULT 0")
                 )
 
+        if "appsettings" in tables:
+            columns = {column["name"] for column in inspector.get_columns("appsettings")}
+            if "controlnet_root" not in columns:
+                connection.execute(
+                    text("ALTER TABLE appsettings ADD COLUMN controlnet_root VARCHAR NOT NULL DEFAULT ''")
+                )
+
         if "generateconfig" in tables:
             columns = {column["name"] for column in inspector.get_columns("generateconfig")}
             if "architecture" not in columns:

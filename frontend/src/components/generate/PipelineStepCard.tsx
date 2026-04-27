@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PipelineStep } from "../../lib/pipeline";
+import type { PipelineStep, PipelineStepMemory } from "../../lib/pipeline";
 import { GenerationProgress } from "./GenerationProgress";
 import { LoraStack } from "./LoraStack";
 
@@ -111,6 +111,34 @@ export function PipelineStepCard({ step, index, canRun, onUpdate, onRemove, onRu
                 loras={step.config.loras}
                 onChange={(loras) => updateConfig({ loras })}
               />
+              <div className="step-memory-section">
+                <span className="eyebrow no-margin" style={{ marginBottom: "6px", display: "block" }}>Memory</span>
+                <div className="memory-options-list">
+                  {(
+                    [
+                      { key: "cpu_offload",            label: "CPU Offload",            hint: "Keeps text encoders on CPU — saves ~2 GB VRAM" },
+                      { key: "sequential_cpu_offload", label: "Sequential CPU Offload", hint: "Offloads all components per step — max savings, much slower" },
+                      { key: "vae_tiling",             label: "VAE Tiling",             hint: "Tiles VAE decode to lower peak VRAM" },
+                      { key: "vae_slicing",            label: "VAE Slicing",            hint: "Slices batch VAE decode — useful for batch count > 1" },
+                    ] as { key: keyof PipelineStepMemory; label: string; hint: string }[]
+                  ).map(({ key, label, hint }) => (
+                    <label key={key} className="mem-toggle-row">
+                      <div className="mem-toggle-text">
+                        <span className="mem-toggle-label">{label}</span>
+                        <span className="mem-toggle-hint">{hint}</span>
+                      </div>
+                      <div className={`mem-toggle-switch${step.config.memory[key] ? " on" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={step.config.memory[key]}
+                          onChange={(e) => updateConfig({ memory: { ...step.config.memory, [key]: e.target.checked } })}
+                        />
+                        <span className="mem-toggle-thumb" />
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
         </div>

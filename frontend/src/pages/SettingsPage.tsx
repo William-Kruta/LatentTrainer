@@ -11,6 +11,8 @@ const defaultSettings: AppSettings = {
   lora_root: "",
   output_root: "",
   dataset_root: "",
+  llama_url: "http://localhost:8080",
+  controlnet_root: "",
 };
 
 function RootSection() {
@@ -62,6 +64,14 @@ function RootSection() {
         <label>
           <span>Dataset Root</span>
           <input value={form.dataset_root} onChange={(e) => setForm({ ...form, dataset_root: e.target.value })} placeholder="/path/to/datasets" />
+        </label>
+        <label>
+          <span>ControlNet Root</span>
+          <input value={form.controlnet_root} onChange={(e) => setForm({ ...form, controlnet_root: e.target.value })} placeholder="/path/to/controlnets" />
+        </label>
+        <label>
+          <span>Llama.cpp URL</span>
+          <input value={form.llama_url} onChange={(e) => setForm({ ...form, llama_url: e.target.value })} placeholder="http://localhost:8080" />
         </label>
       </div>
       <div className="settings-footer">

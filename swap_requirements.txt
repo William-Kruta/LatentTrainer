@@ -1,0 +1,13 @@
+insightface>=0.7.3
+onnxruntime-gpu>=1.16.0
+opencv-python-headless>=4.13.0.92
+numpy>=2.4.4
+nvidia-cublas-cu12
+nvidia-cuda-runtime-cu12
+nvidia-cudnn-cu12
+nvidia-cufft-cu12
+nvidia-curand-cu12
+
+# Runtime model note:
+# Put inswapper_128.onnx at models/insightface/inswapper_128.onnx,
+# or set LATENTTRAINER_INSWAPPER_PATH=/absolute/path/to/inswapper_128.onnx.

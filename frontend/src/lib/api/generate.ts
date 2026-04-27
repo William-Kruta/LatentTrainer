@@ -266,6 +266,10 @@ export const generateApi = {
     steps: number;
     loras: GenerateLoraSpec[];
     extra_image: File | null;
+    cpu_offload: boolean;
+    sequential_cpu_offload: boolean;
+    vae_tiling: boolean;
+    vae_slicing: boolean;
   }) => {
     const formData = new FormData();
     formData.set("source_generation_id", body.source_generation_id);
@@ -274,6 +278,10 @@ export const generateApi = {
     formData.set("height", String(body.height));
     formData.set("steps", String(body.steps));
     formData.set("loras_json", JSON.stringify(body.loras));
+    formData.set("cpu_offload", String(body.cpu_offload));
+    formData.set("sequential_cpu_offload", String(body.sequential_cpu_offload));
+    formData.set("vae_tiling", String(body.vae_tiling));
+    formData.set("vae_slicing", String(body.vae_slicing));
     if (body.extra_image) {
       formData.set("extra_image", body.extra_image);
     }

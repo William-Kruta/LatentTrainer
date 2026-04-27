@@ -7,6 +7,8 @@ class AppSettings(SQLModel, table=True):
     lora_root: str = ""
     output_root: str = ""
     dataset_root: str = ""
+    llama_url: str = "http://localhost:8080"
+    controlnet_root: str = ""
 
 
 class AppSettingsRead(SQLModel):
@@ -14,6 +16,8 @@ class AppSettingsRead(SQLModel):
     lora_root: str
     output_root: str
     dataset_root: str
+    llama_url: str
+    controlnet_root: str = ""
 
 
 class AppSettingsUpdate(SQLModel):
@@ -21,3 +25,5 @@ class AppSettingsUpdate(SQLModel):
     lora_root: str = ""
     output_root: str = ""
     dataset_root: str = ""
+    llama_url: str = "http://localhost:8080"
+    controlnet_root: str = ""

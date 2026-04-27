@@ -16,10 +16,13 @@ from app.models.image_edit import ImageEditResponse, ImageEditStatus
 from app.models.gallery import GalleryDeleteRequest, GalleryExportRequest, GalleryExportResponse, GalleryImage, GalleryMoveRequest
 from app.models.media import (
     AutoCaptionRequest, GPUStat, MediaDownloadRequest, MediaDownloadResponse,
-    MediaFrameExportResponse, MediaVideo,
+    MediaDownloadUrlRequest, MediaDownloadUrlResponse,
+    MediaFrameExportResponse, MediaVideo, MediaClipExportRequest, MediaClipExportToDatasetRequest,
 )
 from app.models.settings import AppSettings, AppSettingsRead, AppSettingsUpdate
 from app.models.ltx import LtxModelConfig, LtxModelConfigRead, LtxModelConfigUpdate
+from app.models.swap import SwapJobStatus, SwapRunResponse
+from app.models.chat import ChatMessage, ChatRequest, ChatResponse, ChatResponseChoice
 
 __all__ = [
     "JobStatus", "utcnow",
@@ -35,7 +38,10 @@ __all__ = [
     "ImageEditResponse", "ImageEditStatus",
     "GalleryDeleteRequest", "GalleryExportRequest", "GalleryExportResponse", "GalleryImage", "GalleryMoveRequest",
     "AutoCaptionRequest", "GPUStat", "MediaDownloadRequest", "MediaDownloadResponse",
-    "MediaFrameExportResponse", "MediaVideo",
+    "MediaDownloadUrlRequest", "MediaDownloadUrlResponse",
+    "MediaFrameExportResponse", "MediaVideo", "MediaClipExportRequest", "MediaClipExportToDatasetRequest",
     "AppSettings", "AppSettingsRead", "AppSettingsUpdate",
     "LtxModelConfig", "LtxModelConfigRead", "LtxModelConfigUpdate",
+    "SwapJobStatus", "SwapRunResponse",
+    "ChatMessage", "ChatRequest", "ChatResponse", "ChatResponseChoice",
 ]

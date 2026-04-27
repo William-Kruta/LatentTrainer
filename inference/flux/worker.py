@@ -21,6 +21,10 @@ def build_parser() -> argparse.ArgumentParser:
     image_edit.add_argument("--steps", type=int, default=4)
     image_edit.add_argument("--limit", type=int, default=None)
     image_edit.add_argument("--lora-weight", action="append", dest="lora_weights", default=[])
+    image_edit.add_argument("--cpu-offload", action="store_true", dest="cpu_offload")
+    image_edit.add_argument("--sequential-cpu-offload", action="store_true", dest="sequential_cpu_offload")
+    image_edit.add_argument("--vae-tiling", action="store_true", dest="vae_tiling")
+    image_edit.add_argument("--vae-slicing", action="store_true", dest="vae_slicing")
 
     text_to_image = subparsers.add_parser("text-to-image")
     text_to_image.add_argument("--prompt", required=True)
@@ -57,6 +61,25 @@ def main() -> None:
         loras.append({"path": path, "strength": float(strength)})
 
     if args.command == "image-edit":
+        # Apply memory settings before loading — pre-populate flux._pipe so the
+        # pipe property skips its hardcoded enable_model_cpu_offload() call.
+        from diffusers import Flux2KleinPipeline  # noqa: PLC0415
+        torch = importlib.import_module("torch")
+        print(json.dumps({"type": "stage", "stage": "loading_model"}), flush=True)
+        pipeline = Flux2KleinPipeline.from_pretrained(args.hf_repo, torch_dtype=torch.bfloat16)
+        if args.sequential_cpu_offload:
+            pipeline.enable_sequential_cpu_offload()
+        elif args.cpu_offload:
+            pipeline.enable_model_cpu_offload()
+        else:
+            pipeline.to(flux.device)
+        if args.vae_tiling:
+            pipeline.vae.enable_tiling()
+        if args.vae_slicing:
+            pipeline.vae.enable_slicing()
+        flux._pipe = pipeline
+
+    if args.command == "image-edit":
         output_path = Path(args.output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         generation_started_at = __import__("time").perf_counter()
@@ -87,7 +110,6 @@ def main() -> None:
                 flush=True,
             )
 
-        stage_callback("loading_model")
         image = flux.image_edit(
             prompt=args.prompt,
             input_files=args.input_files,

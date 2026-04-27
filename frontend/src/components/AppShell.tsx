@@ -1,15 +1,77 @@
-import { NavLink } from "react-router-dom";
-import type { PropsWithChildren } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState, type PropsWithChildren } from "react";
+import { CommandPalette } from "./CommandPalette";
+import { GlobalJobDrawer } from "./GlobalJobDrawer";
+import { RecentOutputsStrip } from "./RecentOutputsStrip";
 
-const links = [
-  { to: "/", label: "Home" },
-  { to: "/training", label: "Training" },
-  { to: "/generate", label: "Generate" },
-  { to: "/media", label: "Media" },
-  { to: "/gallery", label: "Gallery" },
-  { to: "/datasets", label: "Datasets" },
-  { to: "/configs", label: "Configs" },
+interface DropdownItem { to: string; label: string }
+interface NavGroup { label: string; items: DropdownItem[] }
+type NavEntry = { kind: "link"; to: string; label: string } | { kind: "group" } & NavGroup;
+
+const NAV: NavEntry[] = [
+  { kind: "link",  to: "/", label: "Home" },
+  { kind: "group", label: "Studio",  items: [
+    { to: "/training", label: "Training" },
+    { to: "/generate", label: "Generate" },
+  ]},
+  { kind: "group", label: "Library", items: [
+    { to: "/media",    label: "Media" },
+    { to: "/gallery",  label: "Gallery" },
+    { to: "/datasets", label: "Datasets" },
+    { to: "/configs",  label: "Configs" },
+  ]},
+  { kind: "link", to: "/chat", label: "Chat" },
+  { kind: "link", to: "/health", label: "Health" },
 ];
+
+function NavDropdown({ label, items }: NavGroup) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+  const isActive = items.some((i) => location.pathname.startsWith(i.to));
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="nav-dropdown" ref={ref}>
+      <button
+        className={`nav-link nav-dropdown-trigger${isActive ? " active" : ""}`}
+        onClick={() => setOpen((v) => !v)}
+        type="button"
+        aria-expanded={open}
+      >
+        {label}
+        <svg
+          className={`nav-dropdown-caret${open ? " open" : ""}`}
+          width="10" height="10" viewBox="0 0 10 10"
+          fill="none" aria-hidden="true"
+        >
+          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="nav-dropdown-menu">
+          {items.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive: a }) => `nav-dropdown-item${a ? " active" : ""}`}
+              onClick={() => setOpen(false)}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AppShell({ children }: PropsWithChildren) {
   return (
@@ -20,17 +82,22 @@ export function AppShell({ children }: PropsWithChildren) {
           LatentTrainer
         </div>
         <nav className="topnav">
-          {links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.to === "/"}
-              className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
-            >
-              {link.label}
-            </NavLink>
-          ))}
+          {NAV.map((entry) =>
+            entry.kind === "link" ? (
+              <NavLink
+                key={entry.to}
+                to={entry.to}
+                end={entry.to === "/"}
+                className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
+              >
+                {entry.label}
+              </NavLink>
+            ) : (
+              <NavDropdown key={entry.label} label={entry.label} items={entry.items} />
+            )
+          )}
         </nav>
+        <GlobalJobDrawer />
         <NavLink
           to="/settings"
           className={({ isActive }) => `topbar-settings-btn${isActive ? " active" : ""}`}
@@ -42,7 +109,9 @@ export function AppShell({ children }: PropsWithChildren) {
           </svg>
         </NavLink>
       </header>
+      <CommandPalette />
       <main className="page">{children}</main>
+      <RecentOutputsStrip />
     </div>
   );
 }

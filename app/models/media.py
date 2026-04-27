@@ -24,6 +24,7 @@ class MediaVideo(SQLModel):
     filename: str
     title: str
     video_url: str
+    media_type: str = "video"
     size_bytes: int
     created_at: datetime
     duration_seconds: float | None = None
@@ -41,3 +42,30 @@ class MediaDownloadResponse(SQLModel):
 
 class MediaFrameExportResponse(SQLModel):
     path: str
+
+
+class MediaClipExportRequest(SQLModel):
+    filename: str
+    start_time: float
+    end_time: float
+    output_dir: str
+    output_filename: str
+
+
+class MediaClipExportToDatasetRequest(SQLModel):
+    filename: str
+    start_time: float
+    end_time: float
+    dataset_id: int
+    output_filename: str
+
+
+class MediaDownloadUrlRequest(SQLModel):
+    url: str
+    dataset_id: int | None = None
+    filename: str | None = None
+
+
+class MediaDownloadUrlResponse(SQLModel):
+    path: str
+    filename: str

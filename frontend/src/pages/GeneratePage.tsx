@@ -109,6 +109,7 @@ const SETTINGS_TABS = [
   { id: "canvas", label: "Canvas" },
   { id: "parameters", label: "Parameters" },
   { id: "prompts", label: "Prompts" },
+  { id: "controlnet", label: "ControlNet" },
 ] as const;
 
 type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
@@ -200,9 +201,20 @@ export function GeneratePage() {
 
   const [trainingJobToConfirm, setTrainingJobToConfirm] = useState<Job | null>(null);
 
+  // ControlNet
+  const [controlNetEnabled, setControlNetEnabled] = useState(false);
+  const [controlImage, setControlImage] = useState<File | null>(null);
+  const [controlNetModelPath, setControlNetModelPath] = useState<string | null>(null);
+  const [controlNetModelPathDraft, setControlNetModelPathDraft] = useState("");
+  const [isSavingControlNetPath, setIsSavingControlNetPath] = useState(false);
+
   // Model combobox
   const [modelRoot, setModelRoot] = useState("");
   const [modelFiles, setModelFiles] = useState<string[]>([]);
+
+  // ControlNet file combobox
+  const [controlNetRoot, setControlNetRoot] = useState("");
+  const [controlNetFiles, setControlNetFiles] = useState<string[]>([]);
 
   // Prompt history
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
@@ -310,6 +322,18 @@ export function GeneratePage() {
     }).catch(() => {/* ignore */});
   }, []);
 
+  // ── Load ControlNet config (model path) and file list ────────────
+  useEffect(() => {
+    api.getControlNetConfig().then((cfg) => {
+      setControlNetModelPath(cfg.model_path || null);
+      setControlNetModelPathDraft(cfg.model_path || "");
+    }).catch(() => {/* ignore */});
+    api.getControlNetFiles().then((res) => {
+      setControlNetRoot(res.controlnet_root);
+      setControlNetFiles(res.files);
+    }).catch(() => {/* ignore */});
+  }, []);
+
   // ── Load prompt history ───────────────────────────────────────────
   useEffect(() => {
     setPromptHistory(loadPromptHistory());
@@ -337,7 +361,7 @@ export function GeneratePage() {
         return;
       }
 
-      if (e.altKey && ["1", "2", "3", "4"].includes(e.key)) {
+      if (e.altKey && ["1", "2", "3", "4", "5"].includes(e.key)) {
         e.preventDefault();
         setActiveSettingsTab(SETTINGS_TABS[Number(e.key) - 1].id);
         return;
@@ -540,7 +564,13 @@ export function GeneratePage() {
     }
     pushPromptHistory(form.positive_prompt);
     setPromptHistory(loadPromptHistory());
-    const response = await submitGeneration(form);
+    const effectiveForm = controlNetEnabled
+      ? { ...form, controlnet_mode: true }
+      : form;
+    const generateFn = controlNetEnabled
+      ? (payload: typeof form) => api.generateControlNet(payload, controlImage)
+      : undefined;
+    const response = await submitGeneration(effectiveForm, generateFn);
     if (!response) {
       return;
     }
@@ -592,6 +622,22 @@ export function GeneratePage() {
     setValidationMessages([]);
   }
 
+  async function handleSaveControlNetPath() {
+    setIsSavingControlNetPath(true);
+    try {
+      const cfg = await api.updateControlNetConfig({
+        model_path: controlNetModelPathDraft.trim(),
+        conditioning_scale: form.controlnet_conditioning_scale ?? 0.8,
+      });
+      setControlNetModelPath(cfg.model_path || null);
+      toast.success("ControlNet model path saved.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to save ControlNet path.");
+    } finally {
+      setIsSavingControlNetPath(false);
+    }
+  }
+
   async function handleSaveConfig() {
     if (!configName.trim()) { setError("Config name is required."); setSaveFeedback("error"); return; }
     setIsSavingConfig(true);
@@ -628,6 +674,10 @@ export function GeneratePage() {
         steps: step.config.steps,
         loras: step.config.loras,
         extra_image: step.config.extra_image,
+        cpu_offload: step.config.memory.cpu_offload,
+        sequential_cpu_offload: step.config.memory.sequential_cpu_offload,
+        vae_tiling: step.config.memory.vae_tiling,
+        vae_slicing: step.config.memory.vae_slicing,
       });
       updateStep(stepId, { result: response });
     } catch (e) {
@@ -934,66 +984,51 @@ export function GeneratePage() {
                         <span className="eyebrow no-margin">Memory</span>
                       </div>
                       <div className="memory-options-list">
-                        <label className="modal-toggle-row">
-                          <span>
-                            CPU Offload
-                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
-                              {form.architecture === "chroma"
-                                ? "Already enabled by default"
-                                : "Keeps text encoders on CPU — saves ~2 GB VRAM"}
-                            </span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={form.cpu_offload}
-                            onChange={(e) => updateForm({ ...form, cpu_offload: e.target.checked })}
-                          />
-                        </label>
-                        <label className="modal-toggle-row">
-                          <span>
-                            Sequential CPU Offload
-                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
-                              {form.architecture === "chroma"
-                                ? "Layer-by-layer offload — more savings, slower"
-                                : "Offloads all components per step — max savings, much slower"}
-                            </span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={form.sequential_cpu_offload}
-                            onChange={(e) => updateForm({ ...form, sequential_cpu_offload: e.target.checked })}
-                          />
-                        </label>
-                        <label className="modal-toggle-row">
-                          <span>
-                            VAE Tiling
-                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
-                              {form.architecture === "chroma"
-                                ? "Already enabled by default"
-                                : "Tiles VAE decode to lower peak VRAM"}
-                            </span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={form.vae_tiling}
-                            onChange={(e) => updateForm({ ...form, vae_tiling: e.target.checked })}
-                          />
-                        </label>
-                        <label className="modal-toggle-row">
-                          <span>
-                            VAE Slicing
-                            <span className="panel-muted" style={{ display: "block", fontSize: "0.8em" }}>
-                              {form.architecture === "chroma"
-                                ? "Already enabled by default"
-                                : "Slices batch VAE decode — useful for batch count > 1"}
-                            </span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={form.vae_slicing}
-                            onChange={(e) => updateForm({ ...form, vae_slicing: e.target.checked })}
-                          />
-                        </label>
+                        {[
+                          {
+                            key: "cpu_offload" as const,
+                            label: "CPU Offload",
+                            hint: form.architecture === "chroma"
+                              ? "Already enabled by default"
+                              : "Keeps text encoders on CPU — saves ~2 GB VRAM",
+                          },
+                          {
+                            key: "sequential_cpu_offload" as const,
+                            label: "Sequential CPU Offload",
+                            hint: form.architecture === "chroma"
+                              ? "Layer-by-layer offload — more savings, slower"
+                              : "Offloads all components per step — max savings, much slower",
+                          },
+                          {
+                            key: "vae_tiling" as const,
+                            label: "VAE Tiling",
+                            hint: form.architecture === "chroma"
+                              ? "Already enabled by default"
+                              : "Tiles VAE decode to lower peak VRAM",
+                          },
+                          {
+                            key: "vae_slicing" as const,
+                            label: "VAE Slicing",
+                            hint: form.architecture === "chroma"
+                              ? "Already enabled by default"
+                              : "Slices batch VAE decode — useful for batch count > 1",
+                          },
+                        ].map(({ key, label, hint }) => (
+                          <label key={key} className="mem-toggle-row">
+                            <div className="mem-toggle-text">
+                              <span className="mem-toggle-label">{label}</span>
+                              <span className="mem-toggle-hint">{hint}</span>
+                            </div>
+                            <div className={`mem-toggle-switch${form[key] ? " on" : ""}`}>
+                              <input
+                                type="checkbox"
+                                checked={form[key]}
+                                onChange={(e) => updateForm({ ...form, [key]: e.target.checked })}
+                              />
+                              <span className="mem-toggle-thumb" />
+                            </div>
+                          </label>
+                        ))}
                       </div>
                     </div>
                   </>
@@ -1176,6 +1211,113 @@ export function GeneratePage() {
                     </label>
                   </>
                 ) : null}
+
+                {activeSettingsTab === "controlnet" ? (
+                  <>
+                    <div className="memory-options-list" style={{ marginBottom: "12px" }}>
+                      <label className="mem-toggle-row">
+                        <div className="mem-toggle-text">
+                          <span className="mem-toggle-label">Enable ControlNet</span>
+                          <span className="mem-toggle-hint">Route generation through the ControlNet worker</span>
+                        </div>
+                        <div className={`mem-toggle-switch${controlNetEnabled ? " on" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={controlNetEnabled}
+                            onChange={(e) => setControlNetEnabled(e.target.checked)}
+                          />
+                          <span className="mem-toggle-thumb" />
+                        </div>
+                      </label>
+                    </div>
+
+                    {controlNetEnabled ? (
+                      <>
+                        <div className="controlnet-model-row">
+                          <span className="eyebrow no-margin">ControlNet Model</span>
+                          <div className="controlnet-model-edit-row">
+                            <PathCombobox
+                              value={controlNetModelPathDraft}
+                              root={controlNetRoot}
+                              files={controlNetFiles}
+                              onChange={(p) => setControlNetModelPathDraft(p)}
+                              placeholder="/path/to/controlnet.safetensors"
+                              noFilesPlaceholder="No controlnet root configured in Settings"
+                            />
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => void handleSaveControlNetPath()}
+                              disabled={isSavingControlNetPath || controlNetModelPathDraft === (controlNetModelPath ?? "")}
+                            >
+                              {isSavingControlNetPath ? "Saving…" : "Save"}
+                            </button>
+                          </div>
+                          {controlNetModelPath && controlNetModelPath !== controlNetModelPathDraft && (
+                            <span className="controlnet-model-saved">Saved: {controlNetModelPath}</span>
+                          )}
+                          {!controlNetModelPath && (
+                            <span className="controlnet-model-hint">Set the path to your ControlNet adapter (.safetensors or diffusers directory)</span>
+                          )}
+                        </div>
+
+                        <label>
+                          <span>Conditioning Scale</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={2}
+                            step={0.05}
+                            value={form.controlnet_conditioning_scale ?? 0.8}
+                            onChange={(e) => updateForm({ ...form, controlnet_conditioning_scale: Number(e.target.value) })}
+                          />
+                        </label>
+
+                        <label>
+                          <span>Preprocess</span>
+                          <select
+                            value={form.controlnet_preprocess ?? "none"}
+                            onChange={(e) => updateForm({ ...form, controlnet_preprocess: e.target.value as "none" | "canny" })}
+                          >
+                            <option value="none">None (use image as-is)</option>
+                            <option value="canny">Canny Edge Detection</option>
+                          </select>
+                        </label>
+
+                        <div className="controlnet-image-section">
+                          <span className="eyebrow no-margin" style={{ display: "block", marginBottom: "8px" }}>Control Image</span>
+                          {controlImage ? (
+                            <div className="controlnet-image-preview">
+                              <img
+                                src={URL.createObjectURL(controlImage)}
+                                alt="Control image preview"
+                                className="controlnet-preview-img"
+                              />
+                              <div className="controlnet-image-actions">
+                                <span className="controlnet-image-name">{controlImage.name}</span>
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() => setControlImage(null)}
+                                >Remove</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <label className="controlnet-upload-zone">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                style={{ display: "none" }}
+                                onChange={(e) => setControlImage(e.target.files?.[0] ?? null)}
+                              />
+                              <span className="controlnet-upload-hint">Click to upload a control image (optional)</span>
+                            </label>
+                          )}
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             </div>
           </section>
@@ -1185,7 +1327,7 @@ export function GeneratePage() {
           <div className="generate-shortcuts">
             <span><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> generate</span>
             <span><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd> save config</span>
-            <span><kbd>Alt</kbd> + <kbd>1-4</kbd> switch tabs</span>
+            <span><kbd>Alt</kbd> + <kbd>1-5</kbd> switch tabs</span>
             <span><kbd>Alt</kbd> + <kbd>R</kbd> rerun latest</span>
           </div>
 

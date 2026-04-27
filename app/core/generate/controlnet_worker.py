@@ -86,8 +86,9 @@ class PersistentControlNetWorker:
         self._last_used_at = 0.0
 
     def _start_locked(self, payload: GenerateImageRequest, controlnet_path: str) -> None:
+        python = str(Path(BASE_DIR) / ".venv-flux" / "bin" / "python")
         command = [
-            "uv", "run", "python",
+            python,
             "sd_scripts/sdxl_controlnet_persistent_worker.py",
             "--ckpt_path", str(Path(payload.model_path).expanduser()),
             "--controlnet_path", controlnet_path,

@@ -83,6 +83,10 @@ class Flux2WorkerClient:
         limit: int | None = None,
         loras: list[dict[str, float | str]] | None = None,
         on_event: Callable[[dict], None] | None = None,
+        cpu_offload: bool = False,
+        sequential_cpu_offload: bool = False,
+        vae_tiling: bool = False,
+        vae_slicing: bool = False,
     ) -> Path:
         args = [
             "image-edit",
@@ -103,6 +107,14 @@ class Flux2WorkerClient:
             args.extend(["--lora-weight", f"{lora['path']};{lora['strength']}"])
         for input_file in input_files:
             args.extend(["--input-file", input_file])
+        if cpu_offload:
+            args.append("--cpu-offload")
+        if sequential_cpu_offload:
+            args.append("--sequential-cpu-offload")
+        if vae_tiling:
+            args.append("--vae-tiling")
+        if vae_slicing:
+            args.append("--vae-slicing")
 
         payload = self._run(args, on_event=on_event)
         return Path(payload["output_path"])
